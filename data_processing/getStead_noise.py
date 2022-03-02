@@ -74,9 +74,9 @@ if __name__ == "__main__":
                 n = s_signal[:,1]
                 z = s_signal[:,2]
                 [zproc, nproc, eproc] = process.process_three_component_waveform(z, n, e, dt)
-                chunk[0, :, 0] = zproc[:]
+                chunk[0, :, 2] = zproc[:]
                 chunk[0, :, 1] = nproc[:]
-                chunk[0, :, 2] = eproc[:]
+                chunk[0, :, 0] = eproc[:]
                 orig_index = dset.shape[0]
                 dset.resize(dset.shape[0] + chunk.shape[0], axis=0)
                 dset[orig_index:, :, :] = chunk
