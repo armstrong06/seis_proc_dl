@@ -20,7 +20,7 @@ class BaseGatherData(ABC):
 
 
     @abstractmethod
-    def process_data(self, waveform, pick_time, trace_cut_start = -3, trace_cut_end = 3):
+    def process_data(self, waveforms, pick_time, trace_cut_start = -3, trace_cut_end = 3):
         """ 
         Applies basic processing and interpolation of input signals.
 
@@ -73,3 +73,8 @@ class BaseGatherData(ABC):
             path and name (not including file-type suffix) for the archive time-series and metadata files
         """
         pass
+
+
+    def close(self):
+        """ Close the archive manager used to access the archived time-series data"""
+        self.archive_manager.close()
