@@ -1,11 +1,11 @@
 from turtle import down
-from .base_gatherdata import BaseGatherData
+from .base_gatherdata import BaseGatherDataUUSS
 import numpy as np
 import pandas as pd
 import h5py 
 from utils.file_manager import Write
 
-class OneComponentGatherData(BaseGatherData):
+class OneComponentGatherer(BaseGatherDataUUSS):
     def __init__(self, archive_dir, processing_function):
         super().__init__(archive_dir, processing_function)
 
@@ -185,7 +185,7 @@ class OneComponentGatherData(BaseGatherData):
     #     """ Close the archive manager used to access the archived time-series data"""
     #     self.archive_manager.close()
 
-class ThreeComponentGatherData(BaseGatherData):
+class ThreeComponentGatherer(BaseGatherDataUUSS):
     def __init__(self, archive_dir, processing_function):
         super().__init__(archive_dir, processing_function)
         # TODO: I think all 3C will use the same processing functions - fix implementation 

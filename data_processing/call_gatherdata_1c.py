@@ -1,4 +1,4 @@
-from data_processing.gatherdata import OneComponentGatherData
+from data_processing.gatherdata import OneComponentUUSS
 import pyuussmlmodels as uuss
 import os 
 
@@ -12,7 +12,7 @@ if is_first_motion_data:
     processing_function = uuss.FirstMotion.FMNet.ProcessData()
 
 # Initialize 
-gatherer = OneComponentGatherData(archive_dir, processing_function)
+gatherer = OneComponentUUSS(archive_dir, processing_function)
 infilename_roots = ['currentEarthquakeArrivalInformation', 'currentBlastArrivalInformation', 'historicalEarthquakeArrivalInformation']
 outfilename_roots = ['current_earthquake_catalog', 'current_blast_catalog', 'historical_earthquake_catalog']
 for infilename_root, event_type, outfilename_root in zip(infilename_roots, ['le', 'qb', 'le'], outfilename_roots):

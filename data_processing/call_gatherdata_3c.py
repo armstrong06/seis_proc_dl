@@ -1,4 +1,4 @@
-from data_processing.gatherdata import ThreeComponentGatherData
+from data_processing.gatherdata import ThreeComponentUUSS
 import pyuussmlmodels as uuss
 import os 
 
@@ -10,7 +10,7 @@ phase_type = "P"
 processing_function = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
 
 # Initialize 
-gatherer = ThreeComponentGatherData(archive_dir, processing_function)
+gatherer = ThreeComponentUUSS(archive_dir, processing_function)
 infilename_roots = ['currentEarthquakeArrivalInformation', 'currentBlastArrivalInformation', 'historicalEarthquakeArrivalInformation']
 outfilename_roots = ['current_earthquake_catalog', 'current_blast_catalog', 'historical_earthquake_catalog']
 for infilename_root, event_type, outfilename_root in zip(infilename_roots, ['le', 'qb', 'le'], outfilename_roots):

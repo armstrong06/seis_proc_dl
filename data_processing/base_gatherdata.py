@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0, '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/gcc_build')
 import pyWaveformArchive as pwa
 
-class BaseGatherData(ABC):
+class BaseGatherDataUUSS(ABC):
     """ Abstract GatherData class that is inherited to specific cases of gathering data"""
     def __init__(self, archive_dir, processing_function):
         """
