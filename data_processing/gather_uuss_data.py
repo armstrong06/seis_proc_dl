@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import h5py 
 from utils.file_manager import Write
+from detectors.data_processing import make_yboxcar as boxcar
 
 class OneComponentGatherer(BaseGatherDataUUSS):
     def __init__(self, archive_dir, processing_function):
@@ -260,7 +261,7 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         print("Length of", phase_type, "catalog:", len(catalog_df))
         return catalog_df
         
-    def make_archive(self, catalog_df, output_file_root, halfwidth):
+    def make_archive(self, catalog_df, output_file_root, halfwidth, add_boxcar=False):
         """ Overrides method from BaseGatherData."""
         evids = catalog_df['evid'].values
         stations = catalog_df['station'].values
@@ -340,17 +341,24 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
                 continue
 
         print("Read %d waveforms out of %d lines in dataframe (%.2f pct)"%(k, len(evids), float(k)/len(evids)*100))
-        X = np.resize(X, [k, n_samples, 3])
-        y = np.zeros(k, dtype = 'f4') + (n_samples/2.)*0.01
-        output_file_h5 = output_file_root + ".h5"
-        Write.h5py_file(["X", "Y"], [X, y], output_file_h5)
 
         output_file_csv = output_file_root + ".csv"
         catalog_df = catalog_df[lfound]
         assert len(catalog_df) == np.sum(1*lfound), 'dataframe subsample failed'
         catalog_df.to_csv(output_file_csv, index=False)
 
-    def process_and_save_waveforms(self, catalog_filename, phase_type, output_file_root, event_type):
+        X = np.resize(X, [k, n_samples, 3])
+        y = np.zeros(k, dtype = 'f4') + (n_samples/2.)*0.01
+        
+        if add_boxcar:
+            # TODO: Don't hardcode boxcar widths
+            y = boxcar.add_boxcar(catalog_df, {0: 21, 1: 31, 2: 51}, X, y, None)
+
+        output_file_h5 = output_file_root + ".h5"
+        Write.h5py_file(["X", "Y"], [X, y], output_file_h5)
+
+
+    def process_and_save_waveforms(self, catalog_filename, phase_type, output_file_root, event_type, add_boxcar=False):
         """
         Write archived time-series and metadata to disk for specified waveforms
 
@@ -363,4 +371,4 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         """
         catalog_df = self.create_waveform_df(catalog_filename, phase_type)
         catalog_df['event_type'] = event_type
-        self.make_archive(catalog_df, output_file_root)
+        self.make_archive(catalog_df, output_file_root, add_boxcar=add_boxcar)

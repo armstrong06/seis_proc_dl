@@ -64,8 +64,8 @@ if __name__ == "__main__":
         keep = np.zeros(len(df_non_uu), dtype='bool')
         #for trace_name in trace_names:
         for i in range(len(trace_names)):
-            for waveform_chunk in range(segments_per_trace):
-                i0 = int(0 + waveform_chunk*waveform_length_samples)
+            for waveform_segment in range(segments_per_trace):
+                i0 = int(0 + waveform_segment*waveform_length_samples)
                 i1 = int(i0 + waveform_length_samples)
                 assert i0 > -1, 'i0 out of range'
                 assert i1 <= n_samples_stead, 'i1 out of range'
@@ -74,9 +74,17 @@ if __name__ == "__main__":
                 n = s_signal[:,1]
                 z = s_signal[:,2]
                 [zproc, nproc, eproc] = process.process_three_component_waveform(z, n, e, dt)
+                # Order ENZ
                 chunk[0, :, 2] = zproc[:]
                 chunk[0, :, 1] = nproc[:]
                 chunk[0, :, 0] = eproc[:]
+                
+                # check if there are any nan values
+                if len(np.where(np.isnan(chunk))[0]) > 0:
+                    print("Nan values - skipping waveform")
+                    keep[i+waveform_segment] = False
+                    continue
+
                 orig_index = dset.shape[0]
                 dset.resize(dset.shape[0] + chunk.shape[0], axis=0)
                 dset[orig_index:, :, :] = chunk
@@ -84,7 +92,7 @@ if __name__ == "__main__":
                 dset_y.resize(dset_y.shape[0] + y.shape[0], axis=0)
                 #print(s_signal.shape)
                 #break
-                keep[i+waveform_chunk] = True
+                keep[i+waveform_segment] = True
         # Update
         print(dset.shape)
         print(len(keep[keep]))
