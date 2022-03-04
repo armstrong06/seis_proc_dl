@@ -151,6 +151,7 @@ def augment_data(X, Y, n_duplicate,
             # else:
             #     Y_new[idup*n_obs+iobs, :] = Y[iobs, start_index+start_y:end_index-end_y]
 
+    # TODO: I dont know if this will work correct when there are duplicates 
     if meta_for_boxcar is not None:
         Y_new = boxcar.add_boxcar(meta_for_boxcar, {0: 21, 1: 31, 2: 51}, X_new, Y, T_index)
 
@@ -268,7 +269,6 @@ def combine(meta_csv_file,    # metadata for the arrivals
         assert extracted_event_Y.shape[0] < kept_event_Y.shape[0]
 
         print("Processing extracted events...")
-        print("Creating signal test dataset...")
         X_ext, Y_ext, T_ext = augment_data(extracted_event_X[:], extracted_event_Y[:],
                                                          1, window_duration, dt,
                                                          target_shrinkage=None, lrand=True, for_python=True,
