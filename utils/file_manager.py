@@ -9,3 +9,14 @@ class Write():
             file.create_dataset(name, data=data)
         print(f"h5py with keys {file.keys()} created.")
         file.close()
+
+class Read():
+    @staticmethod
+    def hdf5_file(filename):
+        file = h5py.File(filename, "r")
+        return_data = {}
+        for key in file.keys():
+            return_data[key] = file[key][:]
+        file.close()
+        return return_data
+
