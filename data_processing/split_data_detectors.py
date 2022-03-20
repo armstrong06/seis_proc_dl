@@ -9,8 +9,8 @@ from sklearn.model_selection import train_test_split
 from utils.file_manager import Write
 np.random.seed(49230)
 
-class Split_Detector_Data():
-    # TODO: I do not think this is the best way to implement this class
+class SplitDetectorData():
+    # TODO: I do not know that this is the best way to implement this class
 
     def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref, target_shrinkage=None):
         self.window_duration = window_duration
@@ -45,6 +45,7 @@ class Split_Detector_Data():
 
     def write_combined_datasets(self):
         """Combine and write the split data to files"""
+        # TODO: Add way to write when there may not be noise for some reason
         combined = self.__combine_signal_noise(self.signal_train, self.noise_train)
         Write.h5py_file(["X", "Y", "Pick_index"], combined, self.__make_filename("train", "h5"))
         self.signal_train_meta.to_csv(self.__make_filename("train", "csv"), index=False)
