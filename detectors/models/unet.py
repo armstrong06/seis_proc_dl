@@ -9,13 +9,13 @@ from utils.model_helpers import NumpyDataset
 from executor.unet_trainer import UNetTrainer
 
 class UNet(BaseModel):
-    # TODO: find where to clip presigmoid data
     def __init__(self, config):
         super().__init__(config)
         
-        self.device = self.config.train.device
+        self.device = torch.device(self.config.train.device)
         
         self.model = self.build(self.config.model.num_channels, self.config.model.num_classes)
+        self.minimum_presigmoid_value = self.config.model.minimum_presigmoid_value
 
         self.phase_type = self.config.model.phase_type
         self.learning_rate = self.config.train.learning_rate
@@ -71,7 +71,10 @@ class UNet(BaseModel):
         pass
 
     def make_model_path(self, path):
-        return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}' 
+        return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}'
+
+    def catch_final_layer_explosions(final_layer):
+        return np.clip(final_layer, )
 
 class UNetModel(torch.nn.Module):
 
@@ -306,6 +309,3 @@ class UNetModel(torch.nn.Module):
         #print(self.conv93.bias.data)
 
         f.close()
-
-    def catch_final_layer_explosions(final_layer):
-        return np.clip(final_layer, )

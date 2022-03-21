@@ -19,3 +19,6 @@ class NumpyDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.data)
+
+def clamp_presigmoid_values(presigmoid, min_presigmoid_value):
+    return torch.clamp(presigmoid, min=min_presigmoid_value, max=None)

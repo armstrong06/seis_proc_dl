@@ -5,8 +5,10 @@ from torch.autograd import Variable
 import numpy as np
 from sklearn.metrics import classification_report
 
+from utils.model_helpers import clamp_presigmoid_values
+
 class UNetTrainer():
-    def __init__(self, network, optimizer, loss_fn, model_path, device, phase_type="P", detection_thresh=0.5):
+    def __init__(self, network, optimizer, loss_fn, model_path, device, phase_type="P", detection_thresh=0.5, minimum_presigmoid_value=None):
         self.network = network
         self.optimizer = optimizer
         self.loss_fn = loss_fn
@@ -14,6 +16,7 @@ class UNetTrainer():
         self.phase_type = phase_type
         self.detection_thresh = detection_thresh
         self.device = device
+        self.min_presigmoid_value = minimum_presigmoid_value
 
         if (not os.path.exists(self.model_path)):
             os.makedirs(self.model_path)
@@ -21,13 +24,16 @@ class UNetTrainer():
     def train_step(self, inputs, y_true):
         self.network.train()
 
-        # Forward pass
+        # Forward pass        
         presigmoid_output = self.network(inputs)
+        if self.min_presigmoid_value is not None:
+            presigmoid_output = clamp_presigmoid_values(presigmoid_output, self.min_presigmoid_value)
 
         # Set gradients for all parameters to zero
         self.optimizer.zero_grad()
 
-        # Backward pass
+        # Backward pass 
+        # BCEWithLogitsLoss combines the sigmoid with the loss function
         loss_value = self.loss_fn(presigmoid_output, y_true)
         loss_value.backward()
 
@@ -51,7 +57,6 @@ class UNetTrainer():
             total_train_loss = 0
             running_sample_count = 0
 
-            # TODO: add device to configs file
             for i, batch in enumerate(train_loader, 0):
                 
                 inputs, y_true = batch
@@ -142,6 +147,8 @@ class UNetTrainer():
 
                     # Forward pass only
                     val_outputs = self.network(inputs)
+                    if self.min_presigmoid_value is not None:
+                        val_outputs = self.clamp_presigmoid_values(val_outputs)
                     val_outputs = torch.sigmoid(val_outputs)
 
                     val_loss = self.loss_fn(val_outputs, y_true)
