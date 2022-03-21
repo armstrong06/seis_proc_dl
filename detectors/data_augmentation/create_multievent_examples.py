@@ -285,6 +285,7 @@ def get_max_boxcar_width(Y):
 def rescale_waveform(x_large, x_small, mag_diff, to_plot=False):
     assert mag_diff >= 0, "Magnitude difference must be non-negative"
     #print("magnitude difference", mag_diff)
+    # TODO: Check if I need to rescale each trace individual or if it already does that
     m1_max = np.max(abs(x_large))
     m2_max = np.max(abs(x_small))
     #print("M1 max amplitude", m1_max)
@@ -431,9 +432,12 @@ def combine_waveforms(pairs_df, waveform_tuple, outfile_pref, min_sep=300, end_b
                                               metadata["mag1_type"], metadata["mag2"], metadata["mag2_type"],
                                               metadata["rescale_factor"], pre_p])
         x_new = x1 + x2_shift
+        
         # normalize
+        # TODO: Rescale each trace individually
         x_new = x_new/np.max(abs(x_new))
         assert np.max(abs(x_new)) <= 1
+
         #print(np.max(abs(x_new)))
         Y_aug[cnt, :] = y_new
         X_aug[cnt, :, :] = x_new
@@ -478,7 +482,7 @@ if __name__ == "__main__":
     duplicates_df = pd.read_csv("%s/possibleDuplicates_currentEarthquakeArrivalInformation3C.csv"%pref_entire_cat, dtype={'location'  : object})
     duplicated_df = duplicates_df["evid"].unique()
 
-    # Clean uo the dataset for plotting
+    # Clean up the dataset for plotting
     # df_clean = clean_df(df, duplicate_evids=duplicates_df, pick_indicator="pick_time",
     #                     join_mags=entire_cat_df[["evid", "magnitude", "magnitude_type"]], quality_req=[0, 1], sr_dist_max=40)
     df_clean = clean_df(df, duplicate_evids=duplicates_df, pick_indicator="arrival_time",
@@ -486,7 +490,7 @@ if __name__ == "__main__":
 
     assert np.all(np.isin(df_clean.evid, duplicates_df, invert=True)), "Duplicate events still here"
 
-    ################ Traing ################
+    ################ Training ################
     #plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
     #                           figdir="%s/filtered_training_dist.jpg"%figdir)
 
