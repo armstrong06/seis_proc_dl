@@ -1,10 +1,12 @@
+"""Abstract base model for UNet Phase Detectors
+   Copied class from https://github.com/The-AI-Summer/Deep-Learning-In-Production"""
+
 from abc import ABC, abstractmethod
+from utils.config import Config
 
 class BaseModel(abs):
-    def __init__(self, phase_type, num_channels, num_classes, learning_rate):
-        self.phase_type = phase_type
-        self.learning_rate = learning_rate
-        self.model = self.build(num_classes, num_channels)
+    def __init__(self, cfg):
+        self.config = Config.from_json(cfg)
 
     @abstractmethod
     def load_data():

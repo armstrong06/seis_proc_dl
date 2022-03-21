@@ -6,13 +6,14 @@ import numpy as np
 from sklearn.metrics import classification_report
 
 class UNetTrainer():
-    def __init__(self, network, optimizer, loss_fn, model_path, phase_type="P", detection_thresh=0.5):
+    def __init__(self, network, optimizer, loss_fn, model_path, device, phase_type="P", detection_thresh=0.5):
         self.network = network
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.model_path = model_path
         self.phase_type = phase_type
         self.detection_thresh = detection_thresh
+        self.device = device
 
         if (not os.path.exists(self.model_path)):
             os.makedirs(self.model_path)
@@ -55,8 +56,8 @@ class UNetTrainer():
                 
                 inputs, y_true = batch
                 # Get inputs/outputs and wrap in variable object
-                inputs = Variable(inputs.to(device))
-                y_true = Variable(y_true.to(device))
+                inputs = Variable(inputs.to(self.device))
+                y_true = Variable(y_true.to(self.device))
 
                 loss_value, presigmoid_output = self.train_step(batch)
 
@@ -100,7 +101,7 @@ class UNetTrainer():
             scores = torch.sigmoid(presigmoid_outputs)
 
             # Calculate categorical accuracy
-            y_pred = torch.zeros(scores.data.size()).to(device)
+            y_pred = torch.zeros(scores.data.size()).to(self.device)
             y_pred[scores >= self.detection_thresh] = 1
 
             running_acc_update = (y_pred == y_true).sum().item()
@@ -136,8 +137,8 @@ class UNetTrainer():
             with torch.no_grad():
                 for inputs, y_true in val_loader:
                     # Wrap tensors in Variables
-                    inputs = Variable(inputs.to(device))
-                    y_true = Variable(y_true.to(device))
+                    inputs = Variable(inputs.to(self.device))
+                    y_true = Variable(y_true.to(self.device))
 
                     # Forward pass only
                     val_outputs = self.network(inputs)
@@ -147,7 +148,7 @@ class UNetTrainer():
                     total_val_loss += val_loss.item()
 
                     # Calculate categorical accuracy
-                    y_pred = torch.zeros(val_outputs.data.size()).to(device)
+                    y_pred = torch.zeros(val_outputs.data.size()).to(self.device)
                     y_pred[val_outputs >= self.detection_thresh] = 1
 
                     # Compute the pick times

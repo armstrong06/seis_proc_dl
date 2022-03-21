@@ -10,11 +10,24 @@ from executor.unet_trainer import UNetTrainer
 
 class UNet(BaseModel):
     # TODO: find where to clip presigmoid data
-    def __init__(self, phase_type, num_channels, num_classes, model_dir):
-        super().__init__(phase_type, num_channels, num_classes)
-        self.learning_rate = learning_rate
-        self.model = self.build(num_classes, num_channels)
-        self.model_path = self.make_model_path(model_dir)
+    def __init__(self, config):
+        super().__init__(config)
+        
+        self.device = self.config.train.device
+        
+        self.model = self.build(self.config.model.num_channels, self.config.model.num_classes)
+
+        self.phase_type = self.config.model.phase_type
+        self.learning_rate = self.config.train.learning_rate
+        self.batch_size = self.config.train.batch_size
+        self.epochs = self.config.train.epochs
+        self.detection_threshold = self.config.train.detection_threshold
+        self.train_file = self.config.train.train_hdf5_file
+        self.validation_file = self.config.train.validation_hdf5_file
+        self.model_out_dir = self.config.train.model_out_dir
+        
+        self.model_path = self.make_model_path(self.model_out_dir)
+
 
     def load_data(self, data_file):
         with h5py.File(data_file) as f:
@@ -40,19 +53,19 @@ class UNet(BaseModel):
         return loader
 
     def build(self, num_channels, num_classes):
-        return UNetModel(num_channels=num_channels, num_classes=num_classes).to(device)
+        return UNetModel(num_channels=num_channels, num_classes=num_classes).to(self.device)
 
-    def train(self, train_data_file, n_epochs, val_data_file=None):
-        train_loader = self.load_data(train_data_file)
+    def train(self):
+        train_loader = self.load_data(self.train_file)
         validation_loader = None
-        if val_data_file is not None:
-            validation_loader = self.load_data(val_data_file)
+        if self.validation_file is not None:
+            validation_loader = self.load_data(self.validation_file)
 
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
         loss = torch.nn.BCEWithLogitsLoss()
 
-        trainer = UNetTrainer(self.model, optimizer, loss, self.model_path, self.phase_type, detection_threshold)
-        trainer.train(train_loader, n_epochs, val_loader=validation_loader)
+        trainer = UNetTrainer(self.model, optimizer, loss, self.model_path, self.phase_type, self.detection_threshold)
+        trainer.train(train_loader, self.epochs, val_loader=validation_loader)
 
     def evaluate():
         pass
