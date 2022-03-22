@@ -15,12 +15,12 @@ import os
 if __name__ == "__main__":
     
     stead_root_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/stead/'
-    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector'
+    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/STEAD_P'
     max_distance = 150 # Probably everything over ~80 will be critically refracted
     n_samples_stead = 6000
     # Make a larger window than we'd use in practice so we can randomly sample
     # from it
-    secs_before_pick = -10 # Seconds before arrival
+    secs_before_pick = -7.5 # Seconds before arrival
     secs_after_pick  =  10 # Seconds after arrival
     dt = 0.01
     # ch1 is a noise directory
@@ -28,6 +28,10 @@ if __name__ == "__main__":
     phase = "P"
     # Data processing used by Cxx implementation
     process = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+
+    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector3C'
+    uuss_meta_df = pd.read_csv(f'{pref}/current_earthquake_catalog_3C.csv')
+    uuss_meta_df["comb_code"] = uuss_meta_df["network"] + uuss_meta_df["station"]
 
     ########################################
     window_length_samples = int((secs_after_pick - secs_before_pick)/dt) + 1
@@ -53,17 +57,25 @@ if __name__ == "__main__":
         n_rows = n_rows + len(df)
         
         arrival_sample_key = "s_arrival_sample"
+        arrival_status_key = "s_status"
         if phase == "P":
             arrival_sample_key = "p_arrival_sample"
+            arrival_status_key = "p_status"
 
-        df_non_uu = df[~df.source_id.str.contains('uu').values &
-                       (df.trace_category == 'earthquake_local') &
-                       (df['network_code'] != 'UU') &
-                       (df['network_code'] != 'WY') &
-                       (df['s_status'] == 'manual') &
+        df["comb_code"] = df.network_code + df.receiver_code
+
+        # ~df.source_id.str.contains('uu').values
+        df_non_uu = df[(df.trace_category == 'earthquake_local') &
+                       (df[arrival_status_key] == 'manual') &
                        (df['source_distance_km'] < max_distance) &
                        (df[arrival_sample_key] > min_pick_sample) &
-                       (df[arrival_sample_key] < max_pick_sample)]
+                       (df[arrival_sample_key] < max_pick_sample) &
+                       (np.isin(df.comb_code, uuss_meta_df.comb_code.unique(), invert=True)) &
+                       (df.source_magnitude_author) != "UU"]
+
+        # ((np.isin(stead_meta_df["network_code"], uuss_meta_df["network"].unique())) &
+        #                           (np.isin(stead_meta_df["receiver_code"], uuss_meta_df["station"].unique()))) |
+        #                           (np.isin(stead_meta_df["network_code"],["UU", "WY"]))
 
         print("Getting data from:", h5_file)
         trace_names = df_non_uu['trace_name'].values

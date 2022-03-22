@@ -17,21 +17,25 @@ import os
 if __name__ == "__main__":
     
     stead_root_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/stead/'
-    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector'
+    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/STEAD_P'
     # ch1 is noise
     stead_subdirs = ['ch1']
 
     max_distance = 150 # Probably everything over ~80 will be critically refracted
     n_samples_stead = 6000
     # Make a larger window than we'd use in practice so we can randomly sample from it
-    waveform_length = 20 #seconds
+    waveform_length = 17.5 #seconds
     dt = 0.01
 
     # Data processing used by Cxx implementation
     process = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
 
+    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector3C'
+    uuss_meta_df = pd.read_csv(f'{pref}/current_earthquake_catalog_3C.csv')
+    uuss_meta_df.comb_code = uuss_meta_df["network"] + uuss_meta_df["station"]
+
     ##########################################
-    waveform_length_samples = waveform_length/dt
+    waveform_length_samples = waveform_length/dt + 1
     segments_per_trace = int(n_samples_stead//waveform_length_samples) # split the noise window into multiple waveforms
 
     df_all = None
@@ -50,9 +54,10 @@ if __name__ == "__main__":
         print("Loading:", csv_file) 
         df = pd.read_csv(csv_file)#, dtype={'s_arrival_sample' : int, 'p_arrival_sample' : int})
         n_rows = n_rows + len(df)
+        df["comb_code"] = df.network_code + df.receiver_code
+
         df_non_uu = df[(df.trace_category == 'noise') &
-                       (df['network_code'] != 'UU') &
-                       (df['network_code'] != 'WY')]
+                       (np.isin(df.comb_code, uuss_meta_df.comb_code.unique(), invert=True))]
 
         print("Getting data from:", h5_file)
         trace_names = df_non_uu['trace_name'].values
