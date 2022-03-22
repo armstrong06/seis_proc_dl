@@ -1,3 +1,5 @@
+from math import pi
+from xml.sax.handler import all_properties
 import numpy as np
 import torch
 from sklearn.metrics import confusion_matrix
@@ -6,18 +8,56 @@ from utils.model_helpers import clamp_presigmoid_values
 
 class UNetEvaluator():
 
-    def __init__(self, model, batch_size, device, center_window=None, apply_sigmoid=True, minimum_presigmoid_value=None):
+    def __init__(self, batch_size, device, center_window=None, apply_sigmoid=True, minimum_presigmoid_value=None, debug_model_output=False):
         self.min_presigmoid_value = minimum_presigmoid_value
-        self.model = model
+        self.model = None
         self.batch_size = batch_size
         self.apply_sigmoid = apply_sigmoid
         self.device = device
         self.center_window = center_window
+        self.debug_model_output = debug_model_output
 
     def get_n_params(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-    def apply_model(self, X_test):
+    def set_model(self, model):
+        self.model = model
+
+    def apply_model_to_batch(self, X_batch):
+        if self.model is None:
+            print("No model set!")
+            return 
+
+        X = torch.from_numpy(X_batch.transpose((0, 2, 1))).float().to(self.device)
+        # Get predictions
+        Y_est = self.model.forward(X)
+        # Save the presigmoid values
+        if self.debug_model_output:
+            Y_presigmoid = Y_est.squeeze().to('cpu').detach().numpy()
+
+        if (self.apply_sigmoid):
+            if self.min_presigmoid_value is not None:
+                Y_est = clamp_presigmoid_values(Y_est, self.min_presigmoid_value)
+            Y_est = torch.sigmoid(Y_est)
+
+        Y_est = Y_est.squeeze().to('cpu').detach().numpy()
+
+        if self.debug_model_output:
+            return Y_est, Y_presigmoid
+        return Y_est, None
+
+    def apply_model(self, X_test, pick_method=None):
+        """Apply the model to the entire dataset.
+        
+        Returns:
+            model_output_tuple: Returns a tuple with the posterior probabilities for every trace. 
+                                If in debug mode, the tuple also includes the presigmoid values.
+            estimate_pick_tuple: If pick_method is None, returns None. If pick_method is "single" 
+                                returns the most probability and index of the most probable pick. 
+                                If pick_method is "multiple" returns the list of possible picks for each
+                                trace, their probabilities, and their boxcar widths. 
+            """
+
         n_samples = X_test.shape[1]
         n_examples =  X_test.shape[0]
 
@@ -25,6 +65,14 @@ class UNetEvaluator():
         pred_pick_index = np.zeros(n_examples, dtype='i')
         pred_pick_prob = np.zeros(n_examples)
         all_posterior_probs = np.zeros([n_examples, n_samples])
+
+        if pick_method is "multiple":
+            all_widths = []
+            pred_pick_index = []
+            pred_pick_prob = []
+
+        if self.debug_model_output:
+            all_presigmoid_values = np.zeros([n_examples, n_samples])
 
         for i1 in range(0, n_examples, self.batch_size):
             i2 = min(n_examples, i1 + self.batch_size)
@@ -34,24 +82,40 @@ class UNetEvaluator():
             X = torch.from_numpy(X_temp.transpose((0, 2, 1))).float().to(self.device)
             
             # Get predictions
-            Y_est = self.model.forward(X)
-            if (self.apply_sigmoid):
-                if self.min_presigmoid_value is not None:
-                    Y_est = clamp_presigmoid_values(Y_est, self.min_presigmoid_value)
-                Y_est = torch.sigmoid(Y_est)
+            if self.debug_model_output:
+                Y_est, Y_presigmoid = self.apply_model_to_batch(X)
+                all_presigmoid_values[i1:i2, :] = Y_presigmoid
+            else:
+                Y_est, _ = self.apply_model_to_batch(X)
 
-            Y_est = Y_est.squeeze()
-            all_posterior_probs[i1:i2, :] = Y_est.to('cpu').detach().numpy()
+            all_posterior_probs[i1:i2, :] = Y_est
                 
             # Pick indices and probabilities
-            values, indices = self.get_single_picks(Y_est)
-            for k in range(i1,i2):
-                pred_pick_prob[k] = values[k-i1]
-                pred_pick_index[k] = indices[k-i1]
+            if pick_method is "single":
+                values, indices = self.get_single_picks(Y_est, n_samples)
+                for k in range(i1,i2):
+                    pred_pick_prob[k] = values[k-i1]
+                    pred_pick_index[k] = indices[k-i1]
+            elif pick_method == "multiple":
+                for k in range(i1, i2):
+                    values, indices, widths = self.sliding_window_phase_arrival_estimator(Y_est[k-i1], thresh=0.1)
+                    pred_pick_prob.append(values)
+                    pred_pick_index.append(indices)
+                    all_widths.append(widths)
 
-        return pred_pick_prob, pred_pick_index, all_posterior_probs
+        output1 = (all_posterior_probs)
+        if self.debug_model_output:
+            output1 = (all_posterior_probs, Y_presigmoid)
 
-    def get_single_picks(self, Y_est):
+        output2 = None
+        if pick_method == "single":
+            output2 = (pred_pick_index, pred_pick_prob)
+        elif pick_method == "multiple":
+            output2 = (pred_pick_index, pred_pick_prob, widths)
+
+        return output1, output2 
+
+    def get_single_picks(self, Y_est, n_samples):
         # Pick indices and probabilities
         if (self.center_window is None):
             values, indices = Y_est.max(dim=1)
@@ -68,7 +132,7 @@ class UNetEvaluator():
         return values, indices
 
 
-    def tabulate_metrics(self, true_pick_index, est_pick_proba, est_pick_index, epoch,
+    def tabulate_metrics(self, true_pick_index, est_pick_proba, est_pick_index, model_tag,
                         tols = [0.1, 0.25, 0.5, 0.75, 0.9]):
         results = []
 
@@ -99,7 +163,7 @@ class UNetEvaluator():
             acc  = (tn + tp)/(tp + tn + fp + fn)
             prec   = tp/(tp + fp)
             recall = tp/(tp + fn)
-            dic = {"epoch": epoch,
+            dic = {"model": model_tag,
                 "n_picks": n_picks,
                 "n_picked": len(index_resid),
                 "tolerance": tol,
@@ -125,3 +189,47 @@ class UNetEvaluator():
         xmean = np.mean(trimmed_residuals)
         xstd = np.std(trimmed_residuals) 
         return xmean, xstd 
+
+    @staticmethod
+    def sliding_window_phase_arrival_estimator(Y, window_size=100, thresh=0.1, end_thresh_diff=0.05):
+        """
+        Find potential phase arrivals in the probability time-series output from the UNet given a minimum threshold value.
+        Chooses window to look for detection based on when the proba goes above thresh and then below again
+        :param Y: Probability time series
+        :param window_size: step size for sliding window
+        :param thresh: minimum probability threshold to record picks
+        :param min_boxcar_width: approx. minimum width of a boxcar detection allowed
+        :return: list of the samples in Y with an expected phase arrival (given thresh)
+        """
+        i1 = 0
+        picks = []
+        proba_values = []
+        widths = []
+        end_thresh = thresh-end_thresh_diff
+        while i1 < Y.shape[0]:
+            i2 = i1 + np.min([(Y.shape[0] - i1), window_size])
+            if np.any(Y[i1:i2] >= thresh):
+                # find first ind in window above thresh (start looking for max proba)
+                start_win = i1 + np.where(Y[i1:i2] >= thresh)[0][0]
+                # find end ind where proba has gone below thresh - if start and end inds are too close together, find a new end index
+                search_win_size = 100
+                possible_win_lengths = np.where(Y[start_win:start_win+search_win_size] < end_thresh)[0]
+                while len(possible_win_lengths) < 1:
+                    search_win_size += 10
+                    possible_win_lengths = np.where(Y[start_win:start_win+search_win_size] < thresh)[0]
+                    if start_win + search_win_size > Y.shape[0]:
+                        break
+                if len(possible_win_lengths) == 0:
+                    end_win = Y.shape[0]
+                else:
+                    end_win = start_win + possible_win_lengths[0]
+                proba = np.max(Y[start_win:end_win])
+                pick = start_win + np.where(Y[start_win:end_win] == proba)[0][0]
+                widths.append(end_win-start_win)
+                picks.append(pick)
+                proba_values.append(proba)
+                i1 = end_win
+            else:
+                i1 += window_size
+
+        return np.array(proba_values), np.array(picks), np.array(widths)

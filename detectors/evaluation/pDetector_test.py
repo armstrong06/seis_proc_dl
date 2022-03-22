@@ -276,53 +276,6 @@ if __name__ == "__main__":
      
     n_picks = np.sum([T_test > 1])
     T_est_index = np.zeros(T_test.shape[0]) - 1
-
-    """
-    zunet = ZUNet(num_channels=3, num_classes=1).to(device)
-    print("Number of parameters in Zach's model:", get_n_params(zunet))
-    if (phase_type == "P"):
-        print(zach_p_model)
-        check_point = torch.load(zach_p_model, map_location=device)
-    else:
-        check_point = torch.load(zach_s_model)
-    zunet.load_state_dict(check_point['model_state_dict'])
-    print("Applying Zach's model...")
-    zunet.eval()
-
-    y_pred, y_true, y_pred_all, y_true_all, T_est_index, y_proba, val_acc = apply_model(zunet, X_test, Y_test, tol=tol, batch_size=batch_size, lsigmoid=False, dev=device)
-    print("Testing Zach's model...")
-    tabulate_metrics(y_pred, y_true, y_pred_all, y_true_all, T_test, T_est_index, y_proba, tol)
-    """
-
-    """
-    I commented this out
-    zunet = ZUNet(num_channels=3, num_classes=1).to(device)
-    print("Number of parameters in Zach's model:", get_n_params(zunet))
-    if (phase_type == "P"):
-        check_point = torch.load(zach_p_model, map_location=device)
-    else:
-        check_point = torch.load(zach_s_model)
-    zunet.load_state_dict(check_point['model_state_dict'])
-    print("Applying Zach's model...")
-    zunet.eval()
-    Y_proba, T_est_index = apply_model(zunet, X_test, Y_test,
-                                       lsigmoid=True, batch_size=batch_size, dev=device,
-                                       center_window = center_window)
-    resids_zach = []
-    for i in range(len(T_test)):
-        if (T_test[i] < 0):
-            break
-        resids_zach.append( {'epoch': 0, #epoch,
-                             'true_lag': T_test[i],
-                             'residual': T_test[i] - T_est_index[i],
-                             'probability': Y_proba[i],
-                             'snr': snrs[i] } )
-    zach_metrics = tabulate_metrics(T_test, Y_proba, T_est_index, epoch=0, tols=tols)
-    df_zach = pd.DataFrame(zach_metrics)
-    df_zach.to_csv('zach_' + csv_summary, index=False)
-    df_resid_zach = pd.DataFrame(zach_metrics)
-    df_resid_zach.to_csv('zach_' + resid_summary,  index=False)
-    """
     
     if (not os.path.exists(outpath)):
             os.makedirs(outpath)

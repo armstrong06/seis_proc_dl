@@ -29,7 +29,7 @@ class UNet(BaseModel):
         self.model_path = self.make_model_path(self.model_out_dir)
 
 
-    def load_data(self, data_file):
+    def load_data(self, data_file, shuffle=True):
         with h5py.File(data_file) as f:
             X = f['X'][:]
             Y = f['Y'][:]
@@ -39,9 +39,11 @@ class UNet(BaseModel):
         n_samples = len(dataset)
         indices = list(range(n_samples))
 
-        # Randomize rows since I packed the data then the noise
-        shuffled_indices = np.random.choice(indices, size=n_samples, replace=False)
-        sampler = SubsetRandomSampler(shuffled_indices)
+        sampler=None
+        if shuffle:
+            # Randomize rows since I packed the data then the noise
+            shuffled_indices = np.random.choice(indices, size=n_samples, replace=False)
+            sampler = SubsetRandomSampler(shuffled_indices)
 
         loader = torch.utils.data.DataLoader(
             dataset,
@@ -67,7 +69,8 @@ class UNet(BaseModel):
         trainer = UNetTrainer(self.model, optimizer, loss, self.model_path, self.phase_type, self.detection_threshold)
         trainer.train(train_loader, self.epochs, val_loader=validation_loader)
 
-    def evaluate():
+    def evaluate(self):
+        "Evaluate dataset on the final model"
         pass
 
     def make_model_path(self, path):
