@@ -2,7 +2,6 @@ from turtle import down
 from .base_gatherdata import BaseGatherDataUUSS
 import numpy as np
 import pandas as pd
-import h5py 
 from utils.file_manager import Write
 from detectors.data_processing import make_yboxcar as boxcar
 
