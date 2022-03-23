@@ -14,7 +14,7 @@ meta_file = f'{pref}/pStead_1750_300examples.csv'
 noise_h5_filename = f'{pref}/noiseStead_2000_300examples.h5'
 noise_meta_file = f'{pref}/noiseStead_2000_300examples.csv'
 
-outpref = f"{pref}/p_resampled_10s/"
+outpref = f"{pref}/p_resampled_10s/p_"
 
 # For NGB events - Don't need these for STEAD data
 # Remove events within these bounds

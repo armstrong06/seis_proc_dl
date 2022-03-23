@@ -1,3 +1,4 @@
+import os
 import sys
 sys.path.append('..')
 from data_processing import extract_events
@@ -22,6 +23,8 @@ class SplitDetectorData():
         self.target_shrinkage = target_shrinkage # make it so that we classifiy at this fraction of central points in the window
         self.pick_sample = pick_sample
         self.normalize_seperate = normalize_seperate
+
+        self.__make_directory()
 
         self.signal_train = None
         self.signal_test = None
@@ -224,15 +227,21 @@ class SplitDetectorData():
         self.noise_test = noise_test_splits
         self.noise_validate = noise_validate_splits
 
+    def __make_directory(self):
+        dir = os.path.split(self.outfile_pref)[0]
+        if not os.path.exists(dir):
+            print(f"Making output directory {dir}")
+            os.mkdir(dir)
+
     def __set_n_signal_waveforms(self, n_signal_waveforms):
         self.n_signal_waveforms = n_signal_waveforms * self.n_duplicate_train
 
     def __make_filename(self, split, file_type, is_noise=False):
         """Creates a filename for different data splits following a common naming scheme"""
-        if is_noise:
-            return  f'{self.outfile_pref}{split}.{int(self.window_duration)}.{self.n_duplicate_train}dup.{file_type}'
+        if not is_noise:
+            return  f'{self.outfile_pref}{split}.{int(self.window_duration)}s.{self.n_duplicate_train}dup.{file_type}'
         else:
-            return  f'{self.outfile_pref}noise_{split}.{int(self.window_duration)}.{file_type}'
+            return  f'{self.outfile_pref}noise_{split}.{int(self.window_duration)}s.{file_type}'
 
     def __load_waveform_data(self, h5_file, meta_csv_file, n_samples_in_window=1e6):
         if (type(h5_file) is list):

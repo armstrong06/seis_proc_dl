@@ -15,13 +15,13 @@ import os
 if __name__ == "__main__":
     
     stead_root_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/stead/'
-    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/STEAD_P'
+    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead'
     max_distance = 150 # Probably everything over ~80 will be critically refracted
     n_samples_stead = 6000
     # Make a larger window than we'd use in practice so we can randomly sample
     # from it
-    secs_before_pick = -7.5 # Seconds before arrival
-    secs_after_pick  =  10 # Seconds after arrival
+    secs_before_pick = -7.9 # Seconds before arrival
+    secs_after_pick  =  10.0 # Seconds after arrival
     dt = 0.01
     # ch1 is a noise directory
     stead_subdirs = ['ch2', 'ch3', 'ch4', 'ch5', 'ch6']
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     max_pick_sample = n_samples_stead - int(secs_after_pick/dt) - 1
 
     df_all = None
-    ofl = h5py.File(f'{outfile_dir}/{phase}SteadDataset.h5', "w")
+    ofl = h5py.File(f'{outfile_dir}/{phase}Stead_{int(window_length_samples)}.h5', "w")
     dset = ofl.create_dataset("X", (0, window_length_samples, 3),
                               maxshape=(None, window_length_samples, 3))
     dset_y = ofl.create_dataset("Y", (0,), maxshape=(None,))
@@ -71,7 +71,7 @@ if __name__ == "__main__":
                        (df[arrival_sample_key] > min_pick_sample) &
                        (df[arrival_sample_key] < max_pick_sample) &
                        (np.isin(df.comb_code, uuss_meta_df.comb_code.unique(), invert=True)) &
-                       (df.source_magnitude_author) != "UU"]
+                       (df.source_magnitude_author != "UU")]
 
         # ((np.isin(stead_meta_df["network_code"], uuss_meta_df["network"].unique())) &
         #                           (np.isin(stead_meta_df["receiver_code"], uuss_meta_df["station"].unique()))) |
@@ -85,7 +85,7 @@ if __name__ == "__main__":
         #for trace_name in trace_names:
         for i in range(len(trace_names)):
             i0 = s_arrival[i] + int(secs_before_pick/dt)
-            i1 = s_arrival[i] + int(secs_after_pick/dt) + 1
+            i1 = s_arrival[i] + int(secs_after_pick/dt)
             assert i0 > -1, 'i0 out of range'
             assert i1 <= n_samples_stead, 'i1 out of range'
             s_signal = hdf['/data/' + trace_names[i]][i0:i1,:]
@@ -133,5 +133,5 @@ if __name__ == "__main__":
 
     df_all = df_all[columns_keep]
     print(f"Fraction of all waveforms with {phase} picks:", df_all.shape[0]/float(n_rows))
-    df_all.to_csv(f'{outfile_dir}/{phase}SteadMetadata.csv', index=False)
+    df_all.to_csv(f'{outfile_dir}/{phase}Stead_{int(window_length_samples)}.csv', index=False)
     ofl.close()
