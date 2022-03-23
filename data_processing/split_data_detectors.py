@@ -12,13 +12,16 @@ np.random.seed(49230)
 class SplitDetectorData():
     # TODO: I do not know that this is the best way to implement this class
 
-    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref, target_shrinkage=None):
+    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref, target_shrinkage=None,
+                 pick_sample=None, normalize_seperate=True):
         self.window_duration = window_duration
         self.dt = dt
         self.max_pick_shift = max_pick_shift
         self.n_duplicate_train = n_duplicate_train
         self.outfile_pref = outfile_pref
         self.target_shrinkage = target_shrinkage # make it so that we classifiy at this fraction of central points in the window
+        self.pick_sample = pick_sample
+        self.normalize_seperate = normalize_seperate
 
         self.signal_train = None
         self.signal_test = None
@@ -70,6 +73,9 @@ class SplitDetectorData():
     def load_signal_data(self, h5_phase_file, meta_csv_file):
         """Read in the signal data"""
         X, Y, meta_df = self.__load_waveform_data(h5_phase_file, meta_csv_file)
+        # Pick is centered unless otherwise noted
+        if self.pick_sample is None:
+            self.pick_sample = int(X.shape[0]/2)
         self.signal_train = (X, Y)
         self.signal_train_meta = meta_df
 
@@ -93,11 +99,15 @@ class SplitDetectorData():
         if np.isin("source_id", meta_df.columns):
             column_names = np.copy(meta_df.columns.values)
             column_names[np.where(column_names == "source_id")[0][0]] = "evid"
+            column_names[np.where(column_names == "source_origin_time")[0][0]] = "origin_time"
+            column_names[np.where(column_names == "source_longitude")[0][0]] = "event_lon"
+            column_names[np.where(column_names == "source_latitude")[0][0]] = "event_lat"
             meta_df.columns = column_names
+            meta_df = self.__add_stead_pick_quality(meta_df)
 
         # Remove certain events from datasets if necessary
         if extract_events_params is not None:
-            X, Y, meta_df = self.__extract_events(extract_events_params)
+            X, Y, meta_df = self.__extract_events(extract_events_params, meta_df, X, Y)
 
         assert meta_df.shape[0] == X.shape[0], 'number of waveforms dont match csv'
         assert meta_df.shape[0] == Y.shape[0], 'number of responses dont match csv'
@@ -111,14 +121,12 @@ class SplitDetectorData():
         validate_rows = None
         if (test_frac > 0 and test_frac < 1):
             validate_rows, test_rows = train_test_split(test_rows, train_size = test_frac) 
-        else:
-            if (test_frac == 1):
-                test_rows = np.copy(test_rows)
-            else:
-                validate_rows = np.copy(test_rows)
+        elif test_frac == 0:
+            validate_rows = np.copy(test_rows)
+            test_rows = None
 
         self.signal_train = (X[train_rows, :, :], Y[train_rows])
-        self.signal_test_meta = meta_df.iloc[train_rows]
+        self.signal_train_meta = meta_df.iloc[train_rows]
 
         if validate_rows is not None:
             self.signal_validate = (X[validate_rows, :, :], Y[validate_rows])
@@ -161,9 +169,9 @@ class SplitDetectorData():
 
         print("Input noise shape:", X_noise.shape, Y_noise.shape)
 
-        # TODO: Check that this works
+        # TODO: This duplicates noise if there are fewer noise waveforms that signal
         if reduce_stead_noise:
-            X_noise, Y_noise, noise_meta_df = self.__reduce_stead_noise_dataset(noise_meta_df, X_noise, Y_noise)
+            X_noise, Y_noise, noise_meta_df = self.__reduce_stead_noise_dataset(X_noise, Y_noise, noise_meta_df)
         
         print("Samping noise rows...")
         n_noise = X_noise.shape[0]
@@ -173,11 +181,9 @@ class SplitDetectorData():
         if (test_frac > 0 and test_frac < 1):
             noise_validate_rows, noise_test_rows = train_test_split(noise_test_rows,
                                                                     train_size = test_frac)
-        else:
-            if (test_frac == 1):
-                noise_test_rows = np.copy(noise_test_rows)
-            else:
-                noise_validate_rows = np.copy(noise_test_rows) 
+        elif test_frac == 0:
+            noise_validate_rows = np.copy(noise_test_rows)
+            noise_test_rows = None
 
         if self.noise_train_meta is not None:
             self.noise_train_meta = noise_meta_df.iloc[noise_train_rows]
@@ -219,14 +225,14 @@ class SplitDetectorData():
         self.noise_validate = noise_validate_splits
 
     def __set_n_signal_waveforms(self, n_signal_waveforms):
-        self.n_signal_waveforms = n_signal_waveforms
+        self.n_signal_waveforms = n_signal_waveforms * self.n_duplicate_train
 
     def __make_filename(self, split, file_type, is_noise=False):
         """Creates a filename for different data splits following a common naming scheme"""
         if is_noise:
-            return  f'{self.outfile_pref}{split}{self.phase_type}.{self.window_duration}.{self.n_duplicate_train}dup.{file_type}'
+            return  f'{self.outfile_pref}{split}.{int(self.window_duration)}.{self.n_duplicate_train}dup.{file_type}'
         else:
-            return  f'{self.outfile_pref}noise_{split}{self.phase_type}.{self.window_duration}.{file_type}'
+            return  f'{self.outfile_pref}noise_{split}.{int(self.window_duration)}.{file_type}'
 
     def __load_waveform_data(self, h5_file, meta_csv_file, n_samples_in_window=1e6):
         if (type(h5_file) is list):
@@ -268,6 +274,7 @@ class SplitDetectorData():
         n_samples = X.shape[1]
         n_comps = X.shape[2]
         # Compute a safe window size for the network architecture
+        # TODO: use class parameter
         n_samples_in_window = self.__compute_pad_length()
         if (target_shrinkage is None):
             n_samples_in_target = n_samples_in_window
@@ -294,12 +301,13 @@ class SplitDetectorData():
             lags = np.zeros(n_obs*n_duplicate, dtype='i')
         
         # Without lags this will center the picks
-        start_sample = int(n_samples/2 - n_samples_in_window/2)
+        # TODO: This uses the same pick_sample for noise and signal
+        start_sample = int(self.pick_sample - n_samples_in_window/2)
         pick_window_index = int(n_samples_in_window/2)
         print(start_sample, n_samples_in_window)
 
         # Allocate space
-        t = np.zeros([n_samples_in_window, n_comps])
+        #t = np.zeros([n_samples_in_window, n_comps])
         T_index = np.zeros(n_obs*n_duplicate, dtype='int')
         X_new = np.zeros([n_obs*n_duplicate, n_samples_in_window, n_comps])
 
@@ -307,6 +315,14 @@ class SplitDetectorData():
             Y_new = np.zeros([n_obs*n_duplicate, n_samples_in_target, 1])
         else:
             Y_new = np.zeros([n_obs*n_duplicate, n_samples_in_target]) 
+
+        Y_init_meaningful = True
+        try:
+            Y.shape[1]
+        except:
+            print(f"Y contains a scalar, setting to zero array of shape {Y_new.shape}")
+            Y = np.zeros_like(Y_new)
+            Y_init_meaningful = False
 
         # Sample and augment data
         for idup in range(n_duplicate):
@@ -321,35 +337,50 @@ class SplitDetectorData():
                 
                 T_index[idup*n_obs+iobs] = pick_window_index - lags[idup*n_obs+iobs] 
 
-                if X[iobs, start_index:end_index, :].shape[0] != 1008:
-                    print('here is a problem')
-                t[:,:] = np.copy(X[iobs, start_index:end_index, :])
+                X_temp = np.copy(X[iobs, start_index:end_index, :])
+                assert X_temp.shape[0] == n_samples_in_window, "Sampled waveform is the wrong size!"
+                assert X_temp.shape[1] == n_comps, "Wrong number of components in waveform"
+                #t[:,:] = np.copy(X_temp)
                 
                 # min/max rescale
-                tscale = np.amax(np.abs(t))
-                t = t/tscale
-                
-                # Copy
-                X_new[idup*n_obs+iobs, :, :] = t[:,:]
-                if (for_python):
-                    # Noise and signal Y had slightly different formats for some reason. Noise does not need 0 index,
-                    # signal does
-                    #try:
-                    Y_new[idup*n_obs+iobs, :, 0] = Y[iobs, start_index+start_y:end_index-end_y]
-                    # except:
-                    #     try:
-                    #         Y_new[idup * n_obs + iobs, :, 0] = Y[iobs, start_index + start_y:end_index - end_y, 0]
-                    #     except:
-                    #         assert Exception("this didn't work either")
+                if self.normalize_seperate:
+                    X_normalizer = np.amax(np.abs(X_temp), axis=0)
+                    assert X_normalizer.shape[0] is n_comps, "Normalizer is wrong shape for selected norm type"
                 else:
-                    Y_new[idup*n_obs+iobs, :] = Y[iobs, start_index+start_y:end_index-end_y]
+                    X_normalizer = np.amax(np.abs(X_temp))
+                    assert X_normalizer.shape[0] is 1, "Normalizer is wrong shape for selected norm type"
 
-        # TODO: I dont know if this will work correct when there are duplicates 
+                X_temp = X_temp/X_normalizer
+                assert np.max(X_temp) <= 1.0 and np.min(X_temp) >= -1.0, "Normalizing didn't work"
+                # Copy
+                X_new[idup*n_obs+iobs, :, :] = X_temp #t[:,:]
+                assert np.sum(np.isnan(X_temp)*1)==0, "nan values present"
+
+                if meta_for_boxcar is None and Y_init_meaningful:
+                    if (for_python):
+                        Y_new[idup*n_obs+iobs, :, 0] = Y[iobs, start_index+start_y:end_index-end_y]
+                    else:
+                        Y_new[idup*n_obs+iobs, :] = Y[iobs, start_index+start_y:end_index-end_y]
+
         if meta_for_boxcar is not None:
+            meta_for_boxcar = meta_for_boxcar.append([meta_for_boxcar] * (n_duplicate - 1))
             Y_new = boxcar.add_boxcar(meta_for_boxcar, {0: 21, 1: 31, 2: 51}, X_new, Y, T_index)
 
         print("final", X_new.shape, Y_new.shape, T_index.shape)
+        assert X_new.shape[0] == Y_new.shape[0] and Y_new.shape[0] == T_index.shape[0], "New sizes do not match"
         return (X_new, Y_new, T_index)
+
+    def __add_stead_pick_quality(self, meta_df):
+        zero_bound = 0.98
+        one_bound = 0.6
+        meta_df.loc[meta_df.s_weight >= zero_bound, "pick_quality"] = 1.0
+        meta_df.loc[(meta_df.s_weight < zero_bound) & (meta_df.s_weight >= one_bound), "pick_quality"] = 0.75
+        meta_df.loc[(meta_df.s_weight < one_bound) | (np.isnan(meta_df.s_weight)), "pick_quality"] = 0.5
+
+        print(f'Pick_quality counts when using zero_bound {zero_bound} and one_bound {one_bound}:')
+        print(meta_df.pick_quality.value_counts())
+
+        return meta_df
 
     def __extract_events(self, extract_events_params, meta_df, X, Y):
             print("Extracting events...")
@@ -377,7 +408,7 @@ class SplitDetectorData():
 
             return kept_event_X, kept_event_Y, kept_event_meta
  
-    def __reduce_stead_noise_dataset(self, noise_meta_df, X_noise, Y_noise):
+    def __reduce_stead_noise_dataset(self, X_noise, Y_noise, noise_meta_df):
         print("Filtering STEAD noise rows...")
         print("Original noise shape:", X_noise.shape)
         noise_rows = np.arange(0, len(X_noise), 3)
@@ -390,8 +421,7 @@ class SplitDetectorData():
 
         X_noise = X_noise[noise_rows, :, :]
         Y_noise = Y_noise[noise_rows]
-        if noise_meta_df is not None:
-            noise_meta_df = noise_meta_df.iloc[noise_rows]
+        noise_meta_df = noise_meta_df.iloc[noise_rows]
 
         print("New noise shape:", X_noise.shape)
 
@@ -417,9 +447,8 @@ class SplitDetectorData():
         frac = len(rows_train)/len(evids) + len(rows_test)/len(evids)
         assert abs(frac - 1.0) < 1.e-10, 'failed to split data'
         # Ensure no test evid is in the training set
-        for row_test in rows_test:
-            r = np.isin(row_test, rows_train, assume_unique=True)
-            assert not r, 'failed to split data'
+        r = np.isin(rows_test, rows_train, assume_unique=True)*1
+        assert np.sum(r) == 0, 'failed to split data'
         print("N_train: %d, Training fraction: %.2f"%(
             len(rows_train), len(rows_train)/len(evids)))
         print("N_test: %d, Testing fraction: %.2f"%(
@@ -464,6 +493,6 @@ class SplitDetectorData():
         combined = []
         for ind in range(3):
             combined.append(np.concatenate((signal_tuple[ind], noise_tuple[ind]), axis=0 ))
-        return [combined]
+        return combined
 
 

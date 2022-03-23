@@ -38,7 +38,7 @@ def add_boxcar(df, values, X, Y, T=None, dt=0.01):
     """
     pick_quals = df["pick_quality"].values
     quality_to_jiggle = {1.0: 0, 0.75: 1, 0.5: 2}
-    Y_boxcar = np.zeros((Y.shape[0], X.shape[1], 1))
+    Y_boxcar = np.zeros((len(df), X.shape[1], 1))
 
     for i in range(len(df)):
         width = values[quality_to_jiggle[pick_quals[i]]]

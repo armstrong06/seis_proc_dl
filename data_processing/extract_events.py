@@ -26,7 +26,7 @@ def write_h5file(X, Y, outfile, T=None):
     hfout.close()
     print("data saved in", outfile)
 
-def separate_events(evmeta, bounds, to_plot=True):
+def separate_events(evmeta, bounds, to_plot=True, is_stead=False):
     # put index in order so grab correct waveforms later
     evmeta["original_rows"] = np.arange(len(evmeta))
     evmeta['qc_rows'] = np.copy(np.arange(len(evmeta)))
