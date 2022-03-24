@@ -64,7 +64,7 @@ class UNetTrainer():
                 inputs = Variable(inputs.to(self.device))
                 y_true = Variable(y_true.to(self.device))
 
-                loss_value, presigmoid_output = self.train_step(batch)
+                loss_value, presigmoid_output = self.train_step(inputs, y_true)
 
                 # update loss trackers
                 running_loss += loss_value.item()
@@ -102,6 +102,7 @@ class UNetTrainer():
         print("Training finished, took {:.2f}s".format(time.time()-training_start_time))
 
     def check_batch_accuracy(self, presigmoid_outputs, y_true):
+        self.network.eval()
         with torch.no_grad():
             scores = torch.sigmoid(presigmoid_outputs)
 

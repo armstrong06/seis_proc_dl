@@ -21,4 +21,7 @@ class NumpyDataset(torch.utils.data.Dataset):
         return len(self.data)
 
 def clamp_presigmoid_values(presigmoid, min_presigmoid_value):
-    return torch.clamp(presigmoid, min=min_presigmoid_value, max=None)
+    remove_too_neg = torch.clamp(presigmoid, min=min_presigmoid_value, max=None)
+    # TODO: should I do this here? Would need to update CUDA and tensorflow
+    #remove_nan = torch.nan_to_num(remove_too_neg, nan=0.0)
+    return remove_too_neg

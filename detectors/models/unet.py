@@ -3,16 +3,18 @@ import h5py
 import numpy as np
 import os 
 from torch.utils.data.sampler import SubsetRandomSampler
-
+import sys
+sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl")
 from model.base_model import BaseModel
 from utils.model_helpers import NumpyDataset
+sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl/detectors")
 from executor.unet_trainer import UNetTrainer
 
 class UNet(BaseModel):
     def __init__(self, config):
         super().__init__(config)
         
-        self.device = torch.device(self.config.train.device)
+        self.device = torch.device(self.config.train.torch_device)
         
         self.model = self.build(self.config.model.num_channels, self.config.model.num_classes)
         self.minimum_presigmoid_value = self.config.model.minimum_presigmoid_value
@@ -24,12 +26,13 @@ class UNet(BaseModel):
         self.detection_threshold = self.config.train.detection_threshold
         self.train_file = self.config.train.train_hdf5_file
         self.validation_file = self.config.train.validation_hdf5_file
-        self.model_out_dir = self.config.train.model_out_dir
+        self.model_out_dir = self.config.train.model_out_directory
         
         self.model_path = self.make_model_path(self.model_out_dir)
 
 
     def load_data(self, data_file, shuffle=True):
+        # TODO: This didn't work if data_file path is relative to the main script location
         with h5py.File(data_file) as f:
             X = f['X'][:]
             Y = f['Y'][:]
@@ -66,7 +69,9 @@ class UNet(BaseModel):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
         loss = torch.nn.BCEWithLogitsLoss()
 
-        trainer = UNetTrainer(self.model, optimizer, loss, self.model_path, self.phase_type, self.detection_threshold)
+        trainer = UNetTrainer(self.model, optimizer, loss, self.model_path, self.device, 
+                        phase_type=self.phase_type, detection_thresh=self.detection_threshold, 
+                        minimum_presigmoid_value=self.minimum_presigmoid_value)
         trainer.train(train_loader, self.epochs, val_loader=validation_loader)
 
     def evaluate(self):
@@ -76,13 +81,10 @@ class UNet(BaseModel):
     def make_model_path(self, path):
         return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}'
 
-    def catch_final_layer_explosions(final_layer):
-        return np.clip(final_layer, )
-
 class UNetModel(torch.nn.Module):
 
     def __init__(self, num_channels=3, num_classes=1, k=3):
-        super(UNet, self).__init__()
+        super(UNetModel, self).__init__()
         from torch.nn import MaxPool1d, Conv1d, ConvTranspose1d
         self.relu = torch.nn.ReLU()
         #k = 3 #7

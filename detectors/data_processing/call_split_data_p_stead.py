@@ -17,11 +17,15 @@ noise_meta_file = f'{pref}/noiseStead_2000.csv'
 
 outpref = f"{pref}/p_resampled_10s/P."
 
+# Initialize
 spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, outpref, pick_sample=pick_sample)
+# Handle the signal
 spliter.load_signal_data(h5_filename, meta_file)
-spliter.load_noise_data(noise_h5_filename, noise_meta_file)
 spliter.split_signal(train_frac, test_frac, extract_events_params=None)
 spliter.process_signal()
+# Handle the noise
+spliter.load_noise_data(noise_h5_filename, noise_meta_file)
 spliter.split_noise(noise_train_frac, test_frac, reduce_stead_noise=True)
 spliter.process_noise()
+# Combine and write
 spliter.write_combined_datasets()

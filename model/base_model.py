@@ -4,7 +4,7 @@
 from abc import ABC, abstractmethod
 from utils.config import Config
 
-class BaseModel(abs):
+class BaseModel(ABC):
     def __init__(self, cfg):
         self.config = Config.from_json(cfg)
 

@@ -350,7 +350,7 @@ class SplitDetectorData():
                 assert X_temp.shape[0] == n_samples_in_window, "Sampled waveform is the wrong size!"
                 assert X_temp.shape[1] == n_comps, "Wrong number of components in waveform"
                 #t[:,:] = np.copy(X_temp)
-                
+
                 # min/max rescale
                 if self.normalize_seperate:
                     X_normalizer = np.amax(np.abs(X_temp), axis=0)
@@ -360,10 +360,20 @@ class SplitDetectorData():
                     assert X_normalizer.shape[0] is 1, "Normalizer is wrong shape for selected norm type"
 
                 X_temp = X_temp/X_normalizer
+
+                # Handle nan values
+                if np.any(np.isnan(X_temp)):
+                    nan_comps, nan_counts = np.unique(np.where(np.isnan(X_temp))[1], return_counts=True)
+                    print(f"Found {nan_counts} nan values in these channels {nan_comps}...")
+                    print("Filling nan values with Zeros")
+                    X_temp = np.nan_to_num(X_temp)
+                assert np.sum(np.isnan(X_temp) * 1) == 0, "nan values present"
+
                 assert np.max(X_temp) <= 1.0 and np.min(X_temp) >= -1.0, "Normalizing didn't work"
+
                 # Copy
                 X_new[idup*n_obs+iobs, :, :] = X_temp #t[:,:]
-                assert np.sum(np.isnan(X_temp)*1)==0, "nan values present"
+                #assert np.sum(np.isnan(X_temp)*1)==0, "nan values present"
 
                 if meta_for_boxcar is None and Y_init_meaningful:
                     if (for_python):
@@ -447,6 +457,7 @@ class SplitDetectorData():
         unique_evids = np.unique(evids)
         evids_train, evids_test = train_test_split(unique_evids, train_size=train_frac)
 
+        # TODO: This is really slow
         rows_train = np.where(np.isin(evids, evids_train))[0]
         rows_test = np.where(np.isin(evids, evids_test))[0]
 
@@ -456,8 +467,8 @@ class SplitDetectorData():
         frac = len(rows_train)/len(evids) + len(rows_test)/len(evids)
         assert abs(frac - 1.0) < 1.e-10, 'failed to split data'
         # Ensure no test evid is in the training set
-        r = np.isin(rows_test, rows_train, assume_unique=True)*1
-        assert np.sum(r) == 0, 'failed to split data'
+        #r = np.isin(rows_test, rows_train, assume_unique=True)*1
+        #assert np.sum(r) == 0, 'failed to split data'
         print("N_train: %d, Training fraction: %.2f"%(
             len(rows_train), len(rows_train)/len(evids)))
         print("N_test: %d, Testing fraction: %.2f"%(
