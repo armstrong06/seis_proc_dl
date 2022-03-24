@@ -1,6 +1,7 @@
-from data_processing.gather_uuss_data import ThreeComponentGatherer
+#sys.path.insert(0, "/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl/detectors")
+from gather_uuss_data import ThreeComponentGatherer
 import sys
-sys.path.insert(0, '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/templateMatchingSource/rtseis/notchpeak4_gcc83_build/')
+#sys.path.insert(0, '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/templateMatchingSource/rtseis/notchpeak4_gcc83_build/')
 sys.path.insert(0, '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/mlmodels/deepLearning/apply/np4_build')
 import pyuussmlmodels as uuss
 import os 
@@ -9,6 +10,7 @@ archive_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchi
 catalog_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/data/'
 output_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021'
 phase_type = "P"
+waveform_halfwidth = 10
 
 processing_function = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
 
@@ -18,8 +20,8 @@ infilename_roots = ['currentEarthquakeArrivalInformation', 'currentBlastArrivalI
 outfilename_roots = ['current_earthquake_catalog', 'current_blast_catalog', 'historical_earthquake_catalog']
 for infilename_root, event_type, outfilename_root in zip(infilename_roots, ['le', 'qb', 'le'], outfilename_roots):
     print(f'loading {outfilename_root}...')
-    filename = os.path.join(catalog_dir, infilename_root, '3C.csv')
-    outfilename_root = os.path.join(output_dir, phase_type, "_", outfilename_root)
-    gatherer.process_and_save_waveforms(filename, phase_type, outfilename_root, event_type)
+    filename = os.path.join(catalog_dir, f"{infilename_root}3C.csv")
+    outfilename_root = os.path.join(output_dir, f"{phase_type}_{outfilename_root}")
+    gatherer.process_and_save_waveforms(filename, phase_type, outfilename_root, event_type, waveform_halfwidth)
     
 gatherer.close()

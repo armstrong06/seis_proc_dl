@@ -16,7 +16,7 @@ class BaseGatherDataUUSS(ABC):
         h5_archive_files = glob.glob(archive_dir + '/archive_????.h5')
         self.archive_manager = pwa.ArchiveManager()
         self.archive_manager.open_files_for_reading(h5_archive_files)
-        self.proc = processing_function
+        self.processing_function = processing_function
 
 
     @abstractmethod

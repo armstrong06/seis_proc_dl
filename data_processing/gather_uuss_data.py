@@ -1,5 +1,7 @@
 from turtle import down
-from .base_gatherdata import BaseGatherDataUUSS
+import sys
+sys.path.insert(0, "/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl")
+from base_gatherdata import BaseGatherDataUUSS
 import numpy as np
 import pandas as pd
 from utils.file_manager import Write
@@ -211,12 +213,8 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
             #return [None, None, None]
 
         assert 1./waveforms[0].sampling_rate == 1./waveforms[1].sampling_rate == 1./waveforms[2].sampling_rate, "Sampling rates do not match"
-        # try:
         processed_signal_Z, processed_signal_N, processed_signal_E = self.processing_function.process_three_component_waveform(signalZ, signalN, signalE, 1./waveforms[0].sampling_rate)
-        # except:
-        #     print("High Corner Exceeds Nyquist")
-        #     print("sampling rate", waveforms[0].sampling_rate)
-        #     return None
+
 
         target_dt = self.processing_function.target_sampling_period
         t0 = waveforms[0].start_time
@@ -251,13 +249,12 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         print("Original length of 3C catalog:", len(catalog_3c_df))
         # Require picks be of the specified phase type
         catalog_df = catalog_3c_df[catalog_3c_df['phase'] == phase_type]
-        print("Length of 3C catalog:", len(catalog_3c_df))
 
         # Impute blank station codes
         catalog_df['location'].replace(["  "], "", regex=True, inplace=True)
         # Sort catalog
         catalog_df = catalog_df.sort_values(['evid', 'arrival_time'])
-        print("Length of", phase_type, "catalog:", len(catalog_df))
+        print(f"Length of {phase_type} catalog:", len(catalog_df))
         return catalog_df
         
     def make_archive(self, catalog_df, output_file_root, halfwidth, add_boxcar=False):
@@ -357,7 +354,8 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         Write.h5py_file(["X", "Y"], [X, y], output_file_h5)
 
 
-    def process_and_save_waveforms(self, catalog_filename, phase_type, output_file_root, event_type, add_boxcar=False):
+    def process_and_save_waveforms(self, catalog_filename, phase_type, output_file_root,
+                                   event_type, halfwidth, add_boxcar=False):
         """
         Write archived time-series and metadata to disk for specified waveforms
 
@@ -370,4 +368,4 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         """
         catalog_df = self.create_waveform_df(catalog_filename, phase_type)
         catalog_df['event_type'] = event_type
-        self.make_archive(catalog_df, output_file_root, add_boxcar=add_boxcar)
+        self.make_archive(catalog_df, output_file_root, halfwidth, add_boxcar=add_boxcar)
