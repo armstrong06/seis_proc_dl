@@ -7,10 +7,10 @@ import pandas as pd
 import h5py
 
 class MultiModelEval():
-    def __init__(self, model, model_states, evaluator, output_dir):
+    def __init__(self, model, model_states_path, evaluator, output_dir):
         #Initialized model 
         self.model = model
-        self.model_states = model_states
+        self.model_states = model_states_path
         self.evaluator = evaluator
 
         if (not os.path.exists(output_dir)):

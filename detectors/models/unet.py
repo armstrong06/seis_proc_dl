@@ -9,6 +9,7 @@ from model.base_model import BaseModel
 from utils.model_helpers import NumpyDataset
 sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl/detectors")
 from executor.unet_trainer import UNetTrainer
+from evaluation.unet_evaluator import UNetEvaluator
 
 class UNet(BaseModel):
     def __init__(self, config):
@@ -29,14 +30,22 @@ class UNet(BaseModel):
         self.model_out_dir = self.config.train.model_out_directory
         
         self.model_path = self.make_model_path(self.model_out_dir)
+        self.evaluator = None
+        self.center_window = self.config.data.max_lag
 
-
-    def load_data(self, data_file, shuffle=True):
+    @staticmethod
+    def read_data(data_file):
         # TODO: This didn't work if data_file path is relative to the main script location
         with h5py.File(data_file) as f:
             X = f['X'][:]
             Y = f['Y'][:]
-            T = f['Pick_index'][:]    
+            T = f['Pick_index'][:] 
+
+        return X, Y, T
+
+    def load_data(self, data_file, shuffle=True):
+        # TODO: This didn't work if data_file path is relative to the main script location
+        X, Y, _ = self.read_data(data_file)  
             
         dataset = NumpyDataset(X, Y)
         n_samples = len(dataset)
@@ -74,8 +83,18 @@ class UNet(BaseModel):
                         minimum_presigmoid_value=self.minimum_presigmoid_value)
         trainer.train(train_loader, self.epochs, val_loader=validation_loader)
 
-    def evaluate(self):
+    def evaluate(self, test_file):
         "Evaluate dataset on the final model"
+        #test_loader = self.load_data(test_file, shuffle=False)
+        X, Y, T = self.read_data(test_file)
+        evaluator = UNetEvaluator(self.batch_size, self.device, self.center_window, 
+                                minimum_presigmoid_value=self.minimum_presigmoid_value)
+        evaluator.set_model(self.model)
+        post_probs, pick_info = evaluator.apply_model(X, "single")
+        evaluator.tabulate_metrics(T, pick_info[1], pick_info[0], str(self.epochs))
+        pass
+
+    def evaluate_all_models(self):
         pass
 
     def make_model_path(self, path):
