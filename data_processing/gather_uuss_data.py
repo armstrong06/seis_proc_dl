@@ -201,20 +201,35 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         signalZ = np.copy(waveforms[0].signal)
         signalN = np.copy(waveforms[1].signal)
         signalE = np.copy(waveforms[2].signal)
-
+        print(signalZ.shape)
         print(waveforms[0].sampling_rate, waveforms[1].sampling_rate, waveforms[2].sampling_rate)
         if len(signalZ) == 0 or len(signalN) == 0 or len(signalE) == 0:
             return [None, None, None]
-        if 1. / waveforms[0].sampling_rate != 1. / waveforms[1].sampling_rate != 1. / waveforms[2].sampling_rate:
+        # Alysha: Don't compare reciprocals - can get a division by 0
+        # if 1. / waveforms[0].sampling_rate != 1. / waveforms[1].sampling_rate != 1. / waveforms[2].sampling_rate:
+        #    print("Sampling rates do not match")
+        #    return [None, None, None]
+        if (waveforms[0].sampling_rate != waveforms[1].sampling_rate or
+                waveforms[0].sampling_rate != waveforms[2].sampling_rate):
             print("Sampling rates do not match")
             return [None, None, None]
-        if waveforms[0].start_time != waveforms[1].start_time !=  waveforms[2].start_time:
-            print("Start times do not match", waveforms[0].start_time, waveforms[1].start_time, waveforms[2].start_time )
-            #return [None, None, None]
+        if waveforms[0].start_time != waveforms[1].start_time != waveforms[2].start_time:
+            print("Start times do not match", waveforms[0].start_time, waveforms[1].start_time,
+                  waveforms[2].start_time)
+            # return [None, None, None]
 
-        assert 1./waveforms[0].sampling_rate == 1./waveforms[1].sampling_rate == 1./waveforms[2].sampling_rate, "Sampling rates do not match"
-        processed_signal_Z, processed_signal_N, processed_signal_E = self.processing_function.process_three_component_waveform(signalZ, signalN, signalE, 1./waveforms[0].sampling_rate)
+        # Impossible to hit this assertion because of your above if statement
+        assert 1. / waveforms[0].sampling_rate == 1. / waveforms[1].sampling_rate == 1. / waveforms[
+            2].sampling_rate, "Sampling rates do not match"
 
+        # I don't know what's going on.  I think there's an issue with
+        # non-contiguous memory but that's pure conjecture. - BB
+        dt = 1. / waveforms[0].sampling_rate
+        processed_signal_Z = self.processing_function.process_waveform(signalZ, dt)
+        processed_signal_N = self.processing_function.process_waveform(signalN, dt)
+        processed_signal_E = self.processing_function.process_waveform(signalE, dt)
+
+        # processed_signal_Z, processed_signal_N, processed_signal_E = self.processing_function.process_three_component_waveform(signalZ, signalN, signalE, 1./waveforms[0].sampling_rate)
 
         target_dt = self.processing_function.target_sampling_period
         t0 = waveforms[0].start_time
@@ -275,6 +290,9 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         k = 0
         for i in range(len(evids)):
             waveforms_ZNE = []
+            # if (evids[i] == 60000071 and stations[i] == "NOQ") or (evids[i] == 60000115 and stations[i] == "B206") :
+            #     print("Skipping waveform with segmentation fault")
+            #     continue
             for comp in range(3):
                 if comp == 0:
                     channel = channelsZ[i]
@@ -303,6 +321,10 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
                     break
 
             if len(waveforms_ZNE) == 3:
+                print("Waveform: "
+                 + networks[i] + "." + stations[i] + "."
+                 + channel + "." + locations[i]
+                 + str(evids[i]))
                 waveforms = self.process_data(waveforms_ZNE, arrival_times[i], trace_cut_start=-1*halfwidth, trace_cut_end=halfwidth)
                 waveform_Z = waveforms[0]
                 waveform_N = waveforms[1]
