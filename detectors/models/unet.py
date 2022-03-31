@@ -17,7 +17,6 @@ class UNet(BaseModel):
         super().__init__(config)
         
         self.device = torch.device(self.config.train.torch_device)
-        
         self.model = self.build(self.config.model.num_channels, self.config.model.num_classes)
         self.minimum_presigmoid_value = self.config.model.minimum_presigmoid_value
 
@@ -43,6 +42,14 @@ class UNet(BaseModel):
             T = f['Pick_index'][:] 
 
         return X, Y, T
+
+    def load_model_state(self, model_in):
+        if (not os.path.exists(model_in)):
+            print("Model", model_in, " does not exist")
+            return None
+
+        check_point = torch.load(model_in)
+        self.model.load_state_dict(check_point['model_state_dict'])
 
     def load_data(self, data_file, shuffle=True):
         # TODO: This didn't work if data_file path is relative to the main script location
