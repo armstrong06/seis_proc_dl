@@ -13,7 +13,7 @@ np.random.seed(49230)
 class SplitDetectorData():
     # TODO: I do not know that this is the best way to implement this class
 
-    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref, target_shrinkage=None,
+    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref=None, target_shrinkage=None,
                  pick_sample=None, normalize_seperate=True):
         self.window_duration = window_duration
         self.dt = dt
@@ -24,7 +24,8 @@ class SplitDetectorData():
         self.pick_sample = pick_sample
         self.normalize_seperate = normalize_seperate
 
-        self.__make_directory()
+        if self.outfile_pref is not None:
+            self.__make_directory()
 
         self.signal_train = None
         self.signal_test = None
@@ -41,44 +42,58 @@ class SplitDetectorData():
         self.noise_train_meta = None
         self.noise_test_meta = None
         self.noise_validate_meta = None
-        
-        # spliter = Split_Detector_Data(10, 0.01, 250, 2, "path/")
-        # spliter.load_signal(h5_filenames, csv_files)
-        # split.load_noise(h5_files, csv_files)
-        # spliter.split_signal(0.8, 0.5, {extract_params}).process_signal()
-        # spliter.split_noise(0.8, 0.5).process_noise()
-        # spliter.write_combined_splits()
+
+    def return_signal(self):
+        return (self.signal_train, self.signal_test, self.signal_validate)
+
+    def return_signal_meta(self):
+        return (self.signal_train_meta, self.signal_test_meta, self.signal_validate_meta)
+
+    def return_noise(self):
+        return (self.noise_train, self.noise_test, self.noise_validate)
+
+    def return_noise_meta(self):
+        return (self.noise_train_meta, self.noise_test_meta, self.noise_validate_meta)
 
     def write_combined_datasets(self):
         """Combine and write the split data to files"""
         # TODO: Add way to write when there may not be noise for some reason
         combined = self.__combine_signal_noise(self.signal_train, self.noise_train)
-        Write.h5py_file(["X", "Y", "Pick_index"], combined, self.__make_filename("train", "h5"))
-        self.signal_train_meta.to_csv(self.__make_filename("train", "csv"), index=False)
+        Write.h5py_file(["X", "Y", "Pick_index"], combined, self.make_filename("train", "h5"))
+        self.signal_train_meta.to_csv(self.make_filename("train", "csv"), index=False)
 
         if self.signal_test is not None:
             combined = self.__combine_signal_noise(self.signal_test, self.noise_test)
-            Write.h5py_file(["X", "Y", "Pick_index"], combined, self.__make_filename("test", "h5"))
-            self.signal_test_meta.to_csv(self.__make_filename("test", "csv"), index=False)
+            Write.h5py_file(["X", "Y", "Pick_index"], combined, self.make_filename("test", "h5"))
+            self.signal_test_meta.to_csv(self.make_filename("test", "csv"), index=False)
 
         if self.signal_validate is not None:
             combined = self.__combine_signal_noise(self.signal_validate, self.noise_validate)
-            Write.h5py_file(["X", "Y", "Pick_index"], combined, self.__make_filename("validate", "h5"))
-            self.signal_validate_meta.to_csv(self.__make_filename("validate", "csv"), index=False)
+            Write.h5py_file(["X", "Y", "Pick_index"], combined, self.make_filename("validate", "h5"))
+            self.signal_validate_meta.to_csv(self.make_filename("validate", "csv"), index=False)
 
         if self.noise_train_meta is not None:
-            self.noise_train_meta.to_csv(self.__make_filename("train", "csv", is_noise=True), index=False)
+            self.noise_train_meta.to_csv(self.make_filename("train", "csv", is_noise=True), index=False)
             if self.noise_test_meta is not None:
-                self.noise_test_meta.to_csv(self.__make_filename("test", "csv", is_noise=True), index=False)
+                self.noise_test_meta.to_csv(self.make_filename("test", "csv", is_noise=True), index=False)
             if self.noise_validate_meta is not None:
-                self.noise_validate_meta.to_csv(self.__make_filename("validate", "csv", is_noise=True), index=False)
+                self.noise_validate_meta.to_csv(self.make_filename("validate", "csv", is_noise=True), index=False)
 
-    def load_signal_data(self, h5_phase_file, meta_csv_file):
+    def load_signal_data(self, h5_phase_file, meta_csv_file, min_training_quality=-1):
         """Read in the signal data"""
         X, Y, meta_df = self.__load_waveform_data(h5_phase_file, meta_csv_file)
         # Pick is centered unless otherwise noted
         if self.pick_sample is None:
-            self.pick_sample = int(X.shape[0]/2)
+            self.pick_sample = int(X.shape[1]/2)
+
+        if min_training_quality > 0:
+            print("Doing quality control")
+            print(X.shape, Y.shape, meta_df.shape)
+            X = X[np.where(meta_df["pick_quality"] >= min_training_quality)]
+            Y = Y[np.where(meta_df["pick_quality"] >= min_training_quality)]
+            meta_df = meta_df[meta_df['pick_quality'] >= min_training_quality]
+            print(X.shape, Y.shape, meta_df.shape)
+
         self.signal_train = (X, Y)
         self.signal_train_meta = meta_df
 
@@ -139,26 +154,29 @@ class SplitDetectorData():
             self.signal_test = (X[test_rows, :, :], Y[test_rows])
             self.signal_test_meta = meta_df.iloc[test_rows]
 
-    def process_signal(self):
+    def process_signal(self, boxcar_widths={0: 21, 1: 31, 2: 51}):
         """
         Process the signal splits 
         """
         print("Creating signal training dataset...")
         self.signal_train \
             = self.__augment_data(self.signal_train[0], self.signal_train[1], self.n_duplicate_train,
-                        target_shrinkage = self.target_shrinkage, lrand=True, for_python=True, meta_for_boxcar=self.signal_train_meta)
+                        target_shrinkage = self.target_shrinkage, lrand=True, for_python=True,
+                                  meta_for_boxcar=self.signal_train_meta, boxcar_widths=boxcar_widths)
 
         if (self.signal_validate is not None):
             print("Creating signal validation dataset...")
             self.signal_validate \
                 = self.__augment_data(self.signal_validate[0], self.signal_validate[1], 1,
-                            target_shrinkage = self.target_shrinkage, lrand=True, for_python=True, meta_for_boxcar=self.signal_validate_meta)
+                            target_shrinkage = self.target_shrinkage, lrand=True, for_python=True,
+                                      meta_for_boxcar=self.signal_validate_meta, boxcar_widths=boxcar_widths)
 
         if (self.signal_test is not None):
             print("Creating signal test dataset...")
             self.signal_test \
                 = self.__augment_data(self.signal_test[0], self.signal_test[1], 1, 
-                            target_shrinkage = self.target_shrinkage, lrand=True, for_python=True, meta_for_boxcar=self.signal_test_meta)
+                            target_shrinkage = self.target_shrinkage, lrand=True, for_python=True,
+                                      meta_for_boxcar=self.signal_test_meta, boxcar_widths=boxcar_widths)
 
     def split_noise(self, 
                 noise_train_frac = 0.8, # e.g., keep 0.8 pct of noise for training and 0.2 pct for validation, 
@@ -236,7 +254,7 @@ class SplitDetectorData():
     def __set_n_signal_waveforms(self, n_signal_waveforms):
         self.n_signal_waveforms = n_signal_waveforms * self.n_duplicate_train
 
-    def __make_filename(self, split, file_type, is_noise=False):
+    def make_filename(self, split, file_type, is_noise=False):
         """Creates a filename for different data splits following a common naming scheme"""
         if not is_noise:
             return  f'{self.outfile_pref}{split}.{int(self.window_duration)}s.{self.n_duplicate_train}dup.{file_type}'
@@ -245,7 +263,7 @@ class SplitDetectorData():
 
     def __load_waveform_data(self, h5_file, meta_csv_file, n_samples_in_window=1e6):
         if (type(h5_file) is list):
-            self.__join_h5_files(h5_file, n_samples_in_window) # put large number in for n_samples_in_window to keep them all
+            X, Y = self.__join_h5_files(h5_file, n_samples_in_window) # put large number in for n_samples_in_window to keep them all
         else:
             print("Reading:", h5_file)
             h5_file = h5py.File(h5_file, 'r')
@@ -276,14 +294,13 @@ class SplitDetectorData():
 
     def __augment_data(self, X, Y, n_duplicate,
                     target_shrinkage = None,
-                    lrand = True, for_python=True, meta_for_boxcar=None):
+                    lrand = True, for_python=True, meta_for_boxcar=None, boxcar_widths={0: 21, 1: 31, 2: 51}):
         # Determine the sizes of the data
         print("initial", X.shape, Y.shape)
         n_obs = X.shape[0]
         n_samples = X.shape[1]
         n_comps = X.shape[2]
         # Compute a safe window size for the network architecture
-        # TODO: use class parameter
         n_samples_in_window = self.__compute_pad_length()
         if (target_shrinkage is None):
             n_samples_in_target = n_samples_in_window
@@ -320,18 +337,17 @@ class SplitDetectorData():
         T_index = np.zeros(n_obs*n_duplicate, dtype='int')
         X_new = np.zeros([n_obs*n_duplicate, n_samples_in_window, n_comps])
 
+        Y_init_meaningful = True
         if (for_python):
             Y_new = np.zeros([n_obs*n_duplicate, n_samples_in_target, 1])
+            if len(Y.shape) == 2:
+                Y = Y.reshape((Y.shape[0], Y.shape[1], 1))
+            elif len(Y.shape) == 1:
+                print(f"Y contains a scalar, setting to zero array of shape {Y_new.shape}")
+                Y = np.zeros_like(Y_new)
+                Y_init_meaningful = False
         else:
-            Y_new = np.zeros([n_obs*n_duplicate, n_samples_in_target]) 
-
-        Y_init_meaningful = True
-        try:
-            Y.shape[1]
-        except:
-            print(f"Y contains a scalar, setting to zero array of shape {Y_new.shape}")
-            Y = np.zeros_like(Y_new)
-            Y_init_meaningful = False
+            Y_new = np.zeros([n_obs*n_duplicate, n_samples_in_target])
 
         # Sample and augment data
         for idup in range(n_duplicate):
@@ -359,9 +375,15 @@ class SplitDetectorData():
                     X_normalizer = np.amax(np.abs(X_temp))
                     assert X_normalizer.shape[0] is 1, "Normalizer is wrong shape for selected norm type"
 
-                X_temp = X_temp/X_normalizer
+                for norm_ind in range(len(X_normalizer)):
+                    if X_normalizer[norm_ind] != 0:
+                        X_temp[:, norm_ind] = X_temp[:,norm_ind]/X_normalizer[norm_ind]
+                    else:
+                        X_temp[:, norm_ind] = X_temp[:,norm_ind]
 
-                # Handle nan values
+                # X_temp = X_temp/X_normalizer
+
+                # Handle nan values - I think I introduced nan values by dividing by 0
                 if np.any(np.isnan(X_temp)):
                     nan_comps, nan_counts = np.unique(np.where(np.isnan(X_temp))[1], return_counts=True)
                     print(f"Found {nan_counts} nan values in these channels {nan_comps}...")
@@ -376,14 +398,14 @@ class SplitDetectorData():
                 #assert np.sum(np.isnan(X_temp)*1)==0, "nan values present"
 
                 if meta_for_boxcar is None and Y_init_meaningful:
-                    if (for_python):
-                        Y_new[idup*n_obs+iobs, :, 0] = Y[iobs, start_index+start_y:end_index-end_y]
-                    else:
-                        Y_new[idup*n_obs+iobs, :] = Y[iobs, start_index+start_y:end_index-end_y]
+                    # if (for_python):
+                    #         Y_new[idup*n_obs+iobs, :, 0] = Y[iobs, start_index+start_y:end_index-end_y]
+                    # else:
+                    Y_new[idup*n_obs+iobs, :] = Y[iobs, start_index+start_y:end_index-end_y]
 
         if meta_for_boxcar is not None:
             meta_for_boxcar = meta_for_boxcar.append([meta_for_boxcar] * (n_duplicate - 1))
-            Y_new = boxcar.add_boxcar(meta_for_boxcar, {0: 21, 1: 31, 2: 51}, X_new, Y, T_index)
+            Y_new = boxcar.add_boxcar(meta_for_boxcar, boxcar_widths, X_new, Y, T_index)
 
         print("final", X_new.shape, Y_new.shape, T_index.shape)
         assert X_new.shape[0] == Y_new.shape[0] and Y_new.shape[0] == T_index.shape[0], "New sizes do not match"
@@ -422,8 +444,8 @@ class SplitDetectorData():
                                                             meta_for_boxcar=extracted_event_meta)
 
             print("Saving extracted event data...")
-            extract_events.write_h5file(X_ext, Y_ext, self.__make_filename(extract_events_params["name"], "h5"), T=T_ext)
-            extracted_event_meta.to_csv(self.__make_filename(extract_events_params["name"], "df.csv"), index=False)
+            extract_events.write_h5file(X_ext, Y_ext, self.make_filename(extract_events_params["name"], "h5"), T=T_ext)
+            extracted_event_meta.to_csv(self.make_filename(extract_events_params["name"], "df.csv"), index=False)
 
             return kept_event_X, kept_event_Y, kept_event_meta
  

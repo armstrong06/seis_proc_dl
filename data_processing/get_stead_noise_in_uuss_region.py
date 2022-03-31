@@ -17,7 +17,7 @@ import os
 if __name__ == "__main__":
     
     stead_root_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/stead/'
-    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/STEAD_P'
+    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/noise'
     # ch1 is noise
     stead_subdirs = ['ch1']
 
@@ -39,7 +39,7 @@ if __name__ == "__main__":
     segments_per_trace = int(n_samples_stead//waveform_length_samples) # split the noise window into multiple waveforms
 
     df_all = None
-    ofl = h5py.File(f'{outfile_dir}/SteadNoise.h5', "w")
+    ofl = h5py.File(f'{outfile_dir}/UUSS_SteadNoise.h5', "w")
     dset = ofl.create_dataset("X", (0, waveform_length_samples, 3),
                               maxshape=(None, waveform_length_samples, 3))
     dset_y = ofl.create_dataset("Y", (0,), maxshape=(None,))
@@ -57,7 +57,7 @@ if __name__ == "__main__":
         df["comb_code"] = df.network_code + df.receiver_code
 
         df_non_uu = df[(df.trace_category == 'noise') &
-                       (np.isin(df.comb_code, uuss_meta_df.comb_code.unique(), invert=True))]
+                       (np.isin(df.comb_code, uuss_meta_df.comb_code.unique()))]
 
         print("Getting data from:", h5_file)
         trace_names = df_non_uu['trace_name'].values
@@ -120,5 +120,5 @@ if __name__ == "__main__":
                     'back_azimuth_deg','trace_start_time','trace_category','trace_name']
     df_all = df_all[columns_keep]
     print("Fraction of all waveforms with Noise?:", df_all.shape[0]/float(n_rows))
-    df_all.to_csv(f'{outfile_dir}/SteadNoise.csv', index=False)
+    df_all.to_csv(f'{outfile_dir}/UUSS_SteadNoise.csv', index=False)
     ofl.close()
