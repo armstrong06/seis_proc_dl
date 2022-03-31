@@ -165,7 +165,7 @@ def clean_df(df, join_mags=None, duplicate_evids=None, pick_indicator="pick_time
 
     print(df.shape)
     if duplicate_evids is not None:
-        df = df[np.isin(df.evid, duplicate_evids, invert=True)]
+        df = df[np.isin(df.evid, duplicate_evids.evid, invert=True)]
     print(df.shape)
 
     if quality_req is not None:
@@ -244,6 +244,7 @@ def plot_combied_waveforms(Xdata, Y, Tdata, metadata, figdir):
             "%s - %s channel - %s (%s %s), %s(%s %s)" % (
             metadata["station"], comp_names[i], metadata["evid1"], metadata["mag1"], metadata["mag1_type"],
             metadata["evid2"], metadata["mag2"], metadata["mag2_type"]))
+
         if metadata["mag1"] < metadata["mag2"]:
             axes[0].plot(range(Xdata[0].shape[0]), Xdata[4][:, i], label="tr1-original", color="black")
             axes[0].plot(range(Xdata[0].shape[0]), Xdata[0][:, i], label="tr1-rescaled by %0.2f"%metadata["rescale_factor"], color="red")
@@ -282,10 +283,16 @@ def get_max_boxcar_width(Y):
 
     return np.max(boxcar_widths)
 
-def rescale_waveform(x_large, x_small, mag_diff, to_plot=False):
+def rescale_waveform(x_large, x_small, mag_diff, to_plot=False, normalize_separate=True):
     assert mag_diff >= 0, "Magnitude difference must be non-negative"
     #print("magnitude difference", mag_diff)
     # TODO: Check if I need to rescale each trace individual or if it already does that
+    # rescale value is very similar between components now that the input traces were normalized separate. But adds in
+    # potential divide by 0 errors => removing
+    # if normalize_separate:
+    #     m1_max = np.max(abs(x_large), axis=0)
+    #     m2_max = np.max(abs(x_small), axis=0)
+    # else:
     m1_max = np.max(abs(x_large))
     m2_max = np.max(abs(x_small))
     #print("M1 max amplitude", m1_max)
@@ -312,7 +319,7 @@ def rescale_waveform(x_large, x_small, mag_diff, to_plot=False):
     return m2_new, x_small, rescale_factor
 
 def combine_waveforms(pairs_df, waveform_tuple, outfile_pref, min_sep=300, end_buffer=100, to_plot=False, figdir=None,
-                      to_scale=True):
+                      to_scale=True, normalize_separate=True):
     X = waveform_tuple[0]
     Y = waveform_tuple[1]
     T = waveform_tuple[2]
@@ -362,6 +369,14 @@ def combine_waveforms(pairs_df, waveform_tuple, outfile_pref, min_sep=300, end_b
                 unscaled= x1
             rescale_factor = 1
 
+        # if len(rescale_factor) > 1:
+        #     metadata["rescale_factorE"] = rescale_factor[0]
+        #     metadata["rescale_factorN"] = rescale_factor[1]
+        #     metadata["rescale_factorZ"] = rescale_factor[2]
+        # else:
+        #     metadata["rescale_factorE"] = rescale_factor
+        #     metadata["rescale_factorN"] = rescale_factor
+        #     metadata["rescale_factorZ"] = rescale_factor
         metadata["rescale_factor"] = rescale_factor
 
         pre_p = boxcar_widths//2 + 5  # samples - 25 is the max halfwidth of a boxcar
@@ -435,7 +450,21 @@ def combine_waveforms(pairs_df, waveform_tuple, outfile_pref, min_sep=300, end_b
         
         # normalize
         # TODO: Rescale each trace individually
-        x_new = x_new/np.max(abs(x_new))
+        #x_new = x_new/np.max(abs(x_new))
+        # min/max rescale
+        if normalize_separate:
+            X_normalizer = np.amax(np.abs(x_new), axis=0)
+            assert X_normalizer.shape[0] is X.shape[2], "Normalizer is wrong shape for selected norm type"
+        else:
+            X_normalizer = np.amax(np.abs(x_new))
+            assert X_normalizer.shape[0] is 1, "Normalizer is wrong shape for selected norm type"
+
+        for norm_ind in range(len(X_normalizer)):
+            if X_normalizer[norm_ind] != 0:
+                x_new[:, norm_ind] = x_new[:, norm_ind] / X_normalizer[norm_ind]
+            else:
+                x_new[:, norm_ind] = x_new[:, norm_ind]
+
         assert np.max(abs(x_new)) <= 1
 
         #print(np.max(abs(x_new)))
@@ -457,11 +486,12 @@ def combine_waveforms(pairs_df, waveform_tuple, outfile_pref, min_sep=300, end_b
     pd.DataFrame(comb_df[1:], columns=comb_df[0]).to_csv("%s_synthetic_multievent_summary_info.df.csv"%outfile_pref, index=False)
 
 if __name__ == "__main__":
-    pref_entire_cat = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/data"
-    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/threeComponent/resampled_10s"
+    pref_entire_cat = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021"
+    duplicate_pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/data"
+    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021/p_resampled_10s"
     outpref = "%s/synthetic_multievent_waveforms"%pref
-    outfile_pref = "%s/validateP.10s.1dup"%outpref
-    figdir = "%s/validate_figs"%outpref
+    outfile_pref = "%s/trainP.10s.1dup"%outpref
+    figdir = "%s/trani_figs"%outpref
 
     if not os.path.exists(outpref):
         os.makedirs(outpref)
@@ -470,48 +500,48 @@ if __name__ == "__main__":
         os.makedirs(figdir)
 
     # Read in entire 3C catalog
-    entire_cat_df = pd.read_csv("%s/currentEarthquakeArrivalInformation3C.csv"%pref_entire_cat)
+    entire_cat_df = pd.read_csv("%s/P_current_earthquake_catalog.csv"%pref_entire_cat)
     entire_cat_df = entire_cat_df[entire_cat_df["phase"] == "P"]
 
     # Read in dataset for plotting
-    df = pd.read_csv("%s/validateP.10s.1dup.df.csv"%pref, dtype={'location'  : object})
+    df = pd.read_csv("%s/currenteq.train.10s.1dup.csv"%pref, dtype={'location'  : object})
     df = df[df.phase == "P"]
-    waveform_tuple = read_h5file("%s/validateP.10s.1dup.h5"%pref)
+    waveform_tuple = read_h5file("%s/currenteq.train.10s.1dup.h5"%pref)
 
     # Read in potential duplicate evids
-    duplicates_df = pd.read_csv("%s/possibleDuplicates_currentEarthquakeArrivalInformation3C.csv"%pref_entire_cat, dtype={'location'  : object})
+    duplicates_df = pd.read_csv("%s/possibleDuplicates_currentEarthquakeArrivalInformation3C.csv"%duplicate_pref, dtype={'location'  : object})
     duplicated_df = duplicates_df["evid"].unique()
 
     # Clean up the dataset for plotting
     # df_clean = clean_df(df, duplicate_evids=duplicates_df, pick_indicator="pick_time",
     #                     join_mags=entire_cat_df[["evid", "magnitude", "magnitude_type"]], quality_req=[0, 1], sr_dist_max=40)
     df_clean = clean_df(df, duplicate_evids=duplicates_df, pick_indicator="arrival_time",
-                        join_mags=None, quality_req=[0, 1], sr_dist_max=40)
+                        join_mags=None, quality_req=[1.0, 0.75], sr_dist_max=40)
 
-    assert np.all(np.isin(df_clean.evid, duplicates_df, invert=True)), "Duplicate events still here"
+    assert np.all(np.isin(df_clean.evid, duplicates_df.evid, invert=True)), "Duplicate events still here"
 
     ################ Training ################
-    #plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
-    #                           figdir="%s/filtered_training_dist.jpg"%figdir)
+    plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
+                              figdir="%s/filtered_training_dist.jpg"%figdir)
 
-    # plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-    #                             figdir="%s/3C_catalog_dist.jpg"%figdir)
-    #df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=50000, z_indicator="channelz")
-    # plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
-    #                             figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
-    # # combine the waveforms
-    # combine_waveforms(df_pairs, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
-
-    ################ Validation ################
-    # Only use this for validation/test data because much smaller size
-    df_match_dist = match_sampling_distributions(entire_cat_df, df_clean, 6000, "Magnitude distribution of different data sets")
-    # Plot distributions and make dataframe of events to combine
-    plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
-    plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
-                                figdir="%s/filtered_validation_dist.jpg"%figdir)
-    plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
-                                filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
     plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
                                 figdir="%s/3C_catalog_dist.jpg"%figdir)
+    df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=75000, z_indicator="channelz")
+    plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
+                                figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
     # combine the waveforms
-    combine_waveforms(df_match_dist, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
+    combine_waveforms(df_pairs, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
+
+    ################ Validation ################
+    # # Only use this for validation/test data because much smaller size
+    # df_match_dist = match_sampling_distributions(entire_cat_df, df_clean, 15000, "Magnitude distribution of different data sets")
+    # #Plot distributions and make dataframe of events to combine
+    # # plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
+    # # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
+    # #                             figdir="%s/filtered_validation_dist.jpg"%figdir)
+    # # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
+    # #                             filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
+    # # plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+    # #                             figdir="%s/3C_catalog_dist.jpg"%figdir)
+    # #combine the waveforms
+    # combine_waveforms(df_match_dist, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
