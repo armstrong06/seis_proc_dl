@@ -2,7 +2,10 @@ from math import pi
 from xml.sax.handler import all_properties
 import numpy as np
 import torch
+import h5py
 from sklearn.metrics import confusion_matrix
+import os
+import pandas as pd
 
 from utils.model_helpers import clamp_presigmoid_values
 
@@ -22,6 +25,18 @@ class UNetEvaluator():
 
     def set_model(self, model):
         self.model = model
+
+    @staticmethod
+    def save_posterior_probs(posterior_probs, Y_proba, T_est_index, proba_out_dir, epoch):
+        if (not os.path.exists(proba_out_dir)):
+            os.makedirs(proba_out_dir)
+        proba_out_file = f"{proba_out_dir}/posterior_probs.h5"
+        probafile = h5py.File(proba_out_file, "w")
+        probafile.create_group("ModelOutputs")
+        probafile.create_dataset("%s.Y_est"%epoch, data=posterior_probs)
+        probafile.create_dataset("%s.Y_max_proba"%epoch, data=Y_proba)
+        probafile.create_dataset("%s.T_est_index"%epoch, data=T_est_index)
+        probafile.close()
 
     def apply_model_to_batch(self, X_batch):
         if self.model is None:
@@ -176,6 +191,24 @@ class UNetEvaluator():
                 "recall": recall}
             results.append(dic)
         return results
+
+    @staticmethod
+    def calculate_residuals(T_test, T_est_index, Y_proba, epoch):
+        resids = []
+        for i in range(len(T_test)):
+            if (T_test[i] < 0):
+                break
+            resids.append( {'epoch': epoch,
+                            'true_lag': T_test[i],
+                            'residual': T_test[i] - T_est_index[i],
+                            'probability': Y_proba[i],})
+                            #'snr': snrs[i] } ) 
+        return resids
+    
+    @staticmethod
+    def save_result(result, outfile):
+        df = pd.DataFrame(result) 
+        df.to_csv(outfile, index=False)
 
     @staticmethod
     def compute_outer_fence_mean_standard_deviation(residuals):
