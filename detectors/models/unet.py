@@ -31,12 +31,12 @@ class UNet(BaseModel):
         
         self.model_path = self.make_model_path(self.model_out_dir)
         self.evaluator = None
-        self.center_window = self.config.data.max_lag
+        self.center_window = self.config.data.maxlag
 
     @staticmethod
     def read_data(data_file):
         # TODO: This didn't work if data_file path is relative to the main script location
-        with h5py.File(data_file) as f:
+        with h5py.File(data_file, "r") as f:
             X = f['X'][:]
             Y = f['Y'][:]
             T = f['Pick_index'][:] 
@@ -48,8 +48,10 @@ class UNet(BaseModel):
             print("Model", model_in, " does not exist")
             return None
 
+        print(f"Loading model state with {model_in}")
         check_point = torch.load(model_in)
         self.model.load_state_dict(check_point['model_state_dict'])
+        print(check_point["epoch"], check_point["loss"])
 
     def load_data(self, data_file, shuffle=True):
         # TODO: This didn't work if data_file path is relative to the main script location
