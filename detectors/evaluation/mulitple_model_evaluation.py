@@ -7,10 +7,11 @@ import pandas as pd
 import h5py
 
 class MultiModelEval():
-    def __init__(self, model, model_states_path, evaluator, output_dir):
+    def __init__(self, model, model_states_path, epochs, evaluator, output_dir):
         #Initialized model 
         self.model = model
-        self.model_states = model_states_path
+        self.model_states_path = model_states_path
+        self.epochs = epochs
         self.evaluator = evaluator
 
         if (not os.path.exists(output_dir)):
@@ -39,7 +40,7 @@ class MultiModelEval():
 
         return X_test, T_test
 
-    def evaluate_over_models(self, data_path, tols):
+    def evaluate_over_models(self, data_path, tols, pick_method, save_proba=False):
 
         # Not going to save all posterior probs here because that seems uneccessary, 
         # just choose a model and then evaluate using evalutor and save
@@ -49,30 +50,43 @@ class MultiModelEval():
         metrics = []
         X_test, T_test = self.load_dataset(data_path)
 
-        T_est_index = np.zeros(T_test.shape[0]) - 1
+        if save_proba:
+            probafile = h5py.File(f'{self.output_dir}/proba.h5', "w")
+            probafile.create_group("ModelOutputs")
 
-        for model_to_test in self.model_states:
-            model_tag = model_to_test.split("/")[-1]
+        for epoch in self.epochs:
+            model_to_test = os.path.join(self.model_states_path, "*{epoch: 3d}.pt")
             training_loss = self.load_model_state(model_to_test)
             self.evaluator.set_model(self.model)
-            Y_proba, T_est_index, Y_est_all = self.evaluator.apply_model(X_test)
+            post_probs, pick_info = self.evaluator.apply_model(X_test, pick_method=pick_method)
+            Y_proba = pick_info[1]
+            T_est_index = pick_info[0]
 
             for i in range(len(T_test)):
                 if (T_test[i] < 0):
                     break
-                resids.append({'model': model_tag,
+                resids.append({'model': epoch,
                                 'true_lag': T_test[i],
                                 'residual': T_test[i] - T_est_index[i],
                                 'probability': Y_proba[i]})
 
-                metric = self.evaluator.tabulate_metrics(T_test, Y_proba, T_est_index, model_tag=model_tag, tols=tols)
+                metric = self.evaluator.tabulate_metrics(T_test, Y_proba, T_est_index, epoch, tols=tols)
                 for m in metric:
                     m.update(training_loss)
                     metrics.append(m)
 
+            if save_proba:
+                probafile.create_dataset("%s.Y_est"%epoch, data=post_probs)
+                probafile.create_dataset("%s.Y_max_proba"%epoch, data=Y_proba)
+                probafile.create_dataset("%s.T_est_index"%epoch, data=T_est_index)
+
+
         end = time.time()
         print("Total time:", end-start)
 
+        if save_proba:
+            probafile.close()
+            
         df = pd.DataFrame(metrics) 
         df.to_csv(f'{self.output_dir}/metrics.csv', index=False)
 

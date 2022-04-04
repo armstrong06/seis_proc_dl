@@ -12,7 +12,6 @@ CFG = {
         "detection_threshold":0.5, 
         "train_hdf5_file": "/home/armstrong/Research/git_repos/seis-proc-dl/detectors/testing/data/p_train.10s.2dup.h5",
         "validation_hdf5_file": None, 
-        "validation_h5py_file": None, 
         "model_out_directory": "/home/armstrong/Research/git_repos/seis-proc-dl/detectors/testing"
     }, 
     "model":{
