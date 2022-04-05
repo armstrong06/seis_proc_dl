@@ -123,6 +123,7 @@ def generate_sampling_distribution(df,
         cha = df_row[z_indicator]
         loc = df_row.location
 
+        # TODO: Add mag requirment to df_subset (M1-0.3 <= M2)
         # Get a subset of matching events (but don't let me match to myself - hence the check on evid)
         df_subset = df[ (df.evid != evid) & (df.network == net) & (df.station == sta) & (df[z_indicator] == cha) &
                         (df.location == loc)]
@@ -526,7 +527,7 @@ if __name__ == "__main__":
 
     plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
                                 figdir="%s/3C_catalog_dist.jpg"%figdir)
-    df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=75000, z_indicator="channelz")
+    df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=40000, z_indicator="channelz")
     plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
                                 figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
     # combine the waveforms
