@@ -10,13 +10,13 @@ from utils.model_helpers import NumpyDataset
 sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl/detectors")
 from executor.unet_trainer import UNetTrainer
 from evaluation.unet_evaluator import UNetEvaluator
+from evaluation.mulitple_model_evaluation import MultiModelEval
 
 class UNet(BaseModel):
     def __init__(self, config):
         super().__init__(config)
         
         self.device = torch.device(self.config.train.torch_device)
-        
         self.model = self.build(self.config.model.num_channels, self.config.model.num_classes)
         self.minimum_presigmoid_value = self.config.model.minimum_presigmoid_value
 
@@ -42,6 +42,14 @@ class UNet(BaseModel):
             T = f['Pick_index'][:] 
 
         return X, Y, T
+
+    def load_model_state(self, model_in):
+        if (not os.path.exists(model_in)):
+            print("Model", model_in, " does not exist")
+            return None
+
+        check_point = torch.load(model_in)
+        self.model.load_state_dict(check_point['model_state_dict'])
 
     def load_data(self, data_file, shuffle=True):
         # TODO: This didn't work if data_file path is relative to the main script location
@@ -83,19 +91,29 @@ class UNet(BaseModel):
                         minimum_presigmoid_value=self.minimum_presigmoid_value)
         trainer.train(train_loader, self.epochs, val_loader=validation_loader)
 
+
     def evaluate(self, test_file):
         "Evaluate dataset on the final model"
         #test_loader = self.load_data(test_file, shuffle=False)
+        out_dir = f"{self.model_out_dir}/results"
         X, Y, T = self.read_data(test_file)
         evaluator = UNetEvaluator(self.batch_size, self.device, self.center_window, 
                                 minimum_presigmoid_value=self.minimum_presigmoid_value)
         evaluator.set_model(self.model)
         post_probs, pick_info = evaluator.apply_model(X, "single")
-        evaluator.tabulate_metrics(T, pick_info[1], pick_info[0], str(self.epochs))
-        pass
+        results = evaluator.tabulate_metrics(T, pick_info[1], pick_info[0], str(self.epochs))
+        evaluator.save_posterior_probs(post_probs, pick_info[1], pick_info[0], out_dir, self.epochs)
+        resids = evaluator.calculate_residuals(T, pick_info[0], pick_info[1], self.epochs)
+        evaluator.save_result(results, f"{out_dir}/{self.epochs}_summary.csv")
+        evaluator.save_result(resids, f"{out_dir}/{self.epochs}_residuals.csv")
 
-    def evaluate_all_models(self):
-        pass
+    def evaluate_specified_models(self, test_file, model_states_path, tols=np.linspace(0.05, 0.95, 21)):
+        out_dir = f"{self.model_out_dir}/results"
+        single_evaluator = UNetEvaluator(self.batch_size, self.device, self.center_window, 
+                                minimum_presigmoid_value=self.minimum_presigmoid_value)
+        model = self.build(self.config.model.num_channels, self.config.model.num_classes)
+        multi_evaluator = MultiModelEval(model, model_states_path, single_evaluator, out_dir)
+        multi_evaluator.evaluate_over_models(test_file, tols)
 
     def make_model_path(self, path):
         return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}'
