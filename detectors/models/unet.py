@@ -28,7 +28,7 @@ class UNet(BaseModel):
         self.validation_file = self.config.train.validation_hdf5_file
         self.model_out_dir = self.config.train.model_out_directory
         
-        self.model_path = self.make_model_path(self.model_out_dir)
+        self.model_path = self.model_out_dir #self.make_model_path(self.model_out_dir)
         self.evaluator = None
         self.center_window = self.config.data.maxlag
 

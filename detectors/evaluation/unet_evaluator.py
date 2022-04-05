@@ -168,23 +168,40 @@ class UNetEvaluator():
             index_resid = np.copy(index_resid[0:j])
             if (len(index_resid) > 0):
                 trimmed_mean, trimmed_std = self.compute_outer_fence_mean_standard_deviation(index_resid)
+                residual_mean = np.mean(index_resid)
+                residual_std = np.std(index_resid)
             else:
                 trimmed_mean = 0
                 trimmed_std = 0
+                residual_mean = 0
+                residual_std = 0
             
             # I had to add label into this or it breaks when 100% accuracte. If there are more than 2 classes, will need to edit this. 
             tn, fp, fn, tp = confusion_matrix(Y_obs, Y_est, labels=[0, 1]).ravel()
-            acc  = (tn + tp)/(tp + tn + fp + fn)
-            prec   = tp/(tp + fp)
-            recall = tp/(tp + fn)
+            
+            if (tp + tn + fp + fn) == 0:
+                acc = 0
+            else:
+                acc  = (tn + tp)/(tp + tn + fp + fn)
+            
+            if (tp + fp) == 0:
+                prec = 0
+            else:
+                prec   = tp/(tp + fp)
+
+            if (tp + fn) == 0:
+                recall = 0
+            else:
+                recall = tp/(tp + fn)
+
             dic = {"epoch": model_epoch,
                 "n_picks": n_picks,
                 "n_picked": len(index_resid),
                 "tolerance": tol,
                 "accuracy": acc,
                 "precision": prec,
-                "residual_mean": np.mean(index_resid),
-                "residual_std": np.std(index_resid),
+                "residual_mean": residual_mean,
+                "residual_std": residual_std,
                 "trimmed_residual_mean": trimmed_mean,
                 "trimmed_residual_std": trimmed_std,
                 "recall": recall}
@@ -218,6 +235,8 @@ class UNetEvaluator():
         of3 = q3 + 1.5*iqr
         trimmed_residuals = residuals[(residuals > of1) & (residuals < of3)]
         #print(len(trimmed_residuals), len(residuals), of1, of3)
+        if len(trimmed_residuals) == 0:
+            return 0, 0
         xmean = np.mean(trimmed_residuals)
         xstd = np.std(trimmed_residuals) 
         return xmean, xstd 

@@ -5,6 +5,7 @@ import time
 import numpy as np
 import pandas as pd
 import h5py
+import glob
 
 class MultiModelEval():
     def __init__(self, model, model_states_path, epochs, evaluator, output_dir):
@@ -22,8 +23,8 @@ class MultiModelEval():
     def load_model_state(self, model_in):
         if (not os.path.exists(model_in)):
             print("Model", model_in, " does not exist")
-            return None
-
+            raise Exception
+        print(f"Loading {model_in}")
         check_point = torch.load(model_in)
         training_loss = {'epoch': check_point['epoch'], 'training_loss': check_point['loss']}
         #print(training_loss)
@@ -34,7 +35,7 @@ class MultiModelEval():
 
     @staticmethod
     def load_dataset(h5f):
-        with h5py.File(h5f) as f:
+        with h5py.File(h5f, "r") as f:
             X_test = f['X'][:]
             T_test = f['Pick_index'][:]
 
@@ -55,8 +56,9 @@ class MultiModelEval():
             probafile.create_group("ModelOutputs")
 
         for epoch in self.epochs:
-            model_to_test = os.path.join(self.model_states_path, "*{epoch: 3d}.pt")
-            training_loss = self.load_model_state(model_to_test)
+            model_to_test = glob.glob(os.path.join(self.model_states_path, f"*{epoch:03}.pt"))
+            assert len(model_to_test)==1, "Wrong number of model paths found"
+            training_loss = self.load_model_state(model_to_test[0])
             self.evaluator.set_model(self.model)
             post_probs, pick_info = self.evaluator.apply_model(X_test, pick_method=pick_method)
             Y_proba = pick_info[1]
