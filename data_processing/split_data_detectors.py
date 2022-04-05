@@ -138,7 +138,7 @@ class SplitDetectorData():
 
         validate_rows = None
         if (test_frac > 0 and test_frac < 1):
-            validate_rows, test_rows = train_test_split(test_rows, train_size = test_frac) 
+            test_rows, validate_rows = train_test_split(test_rows, train_size = test_frac)
         elif test_frac == 0:
             validate_rows = np.copy(test_rows)
             test_rows = None

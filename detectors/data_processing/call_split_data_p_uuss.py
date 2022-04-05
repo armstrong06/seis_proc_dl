@@ -99,10 +99,10 @@ train_data, train_df = concate_splits(ceq_train, ceq_train_df, cbl_train, cbl_tr
                                             heq_train, heq_train_df, ceq_train_noise)
 
 test_data, test_df = concate_splits(ceq_test, ceq_test_df, cbl_test, cbl_test_df,
-                                            heq_test, heq_test_df)
+                                            heq_test, heq_test_df, ceq_test_noise)
 
 validate_data, validate_df = concate_splits(ceq_validate, ceq_validate_df, cbl_validate, cbl_validate_df,
-                                            heq_validate, heq_validate_df)
+                                            heq_validate, heq_validate_df, ceq_validate_noise)
 
 Write.h5py_file(["X", "Y", "Pick_index"], train_data, spliter.make_filename("train", "h5"))
 Write.h5py_file(["X", "Y", "Pick_index"], test_data, spliter.make_filename("test", "h5"))
