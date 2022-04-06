@@ -72,10 +72,10 @@ class MultiModelEval():
                                 'residual': T_test[i] - T_est_index[i],
                                 'probability': Y_proba[i]})
 
-                metric = self.evaluator.tabulate_metrics(T_test, Y_proba, T_est_index, epoch, tols=tols)
-                for m in metric:
-                    m.update(training_loss)
-                    metrics.append(m)
+            metric = self.evaluator.tabulate_metrics(T_test, Y_proba, T_est_index, epoch, tols=tols)
+            for m in metric:
+                m.update(training_loss)
+                metrics.append(m)
 
             if save_proba:
                 probafile.create_dataset("%s.Y_est"%epoch, data=post_probs)
