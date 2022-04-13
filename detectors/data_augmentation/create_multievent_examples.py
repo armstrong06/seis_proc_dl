@@ -122,11 +122,11 @@ def generate_sampling_distribution(df,
         sta = df_row.station
         cha = df_row[z_indicator]
         loc = df_row.location
+        mag = df_row.magnitude
 
-        # TODO: Add mag requirment to df_subset (M1-0.3 <= M2)
         # Get a subset of matching events (but don't let me match to myself - hence the check on evid)
         df_subset = df[ (df.evid != evid) & (df.network == net) & (df.station == sta) & (df[z_indicator] == cha) &
-                        (df.location == loc)]
+                        (df.location == loc) & (df.magnitude >= mag-0.5)]
 
         if (len(df_subset) < 1):
             continue
@@ -491,8 +491,8 @@ if __name__ == "__main__":
     duplicate_pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/data"
     pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021/p_resampled_10s"
     outpref = "%s/synthetic_multievent_waveforms"%pref
-    outfile_pref = "%s/trainP.10s.1dup"%outpref
-    figdir = "%s/trani_figs"%outpref
+    outfile_pref = "%s/validateP.10s.1dup"%outpref
+    figdir = "%s/validation_figs"%outpref
 
     if not os.path.exists(outpref):
         os.makedirs(outpref)
@@ -505,9 +505,9 @@ if __name__ == "__main__":
     entire_cat_df = entire_cat_df[entire_cat_df["phase"] == "P"]
 
     # Read in dataset for plotting
-    df = pd.read_csv("%s/currenteq.train.10s.1dup.csv"%pref, dtype={'location'  : object})
+    df = pd.read_csv("%s/currenteq.validate.10s.1dup.csv"%pref, dtype={'location'  : object})
     df = df[df.phase == "P"]
-    waveform_tuple = read_h5file("%s/currenteq.train.10s.1dup.h5"%pref)
+    waveform_tuple = read_h5file("%s/currenteq.validate.10s.1dup.h5"%pref)
 
     # Read in potential duplicate evids
     duplicates_df = pd.read_csv("%s/possibleDuplicates_currentEarthquakeArrivalInformation3C.csv"%duplicate_pref, dtype={'location'  : object})
@@ -522,27 +522,27 @@ if __name__ == "__main__":
     assert np.all(np.isin(df_clean.evid, duplicates_df.evid, invert=True)), "Duplicate events still here"
 
     ################ Training ################
-    plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
-                              figdir="%s/filtered_training_dist.jpg"%figdir)
-
-    plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-                                figdir="%s/3C_catalog_dist.jpg"%figdir)
-    df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=40000, z_indicator="channelz")
-    plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
-                                figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
-    # combine the waveforms
-    combine_waveforms(df_pairs, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
+    # plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
+    #                           figdir="%s/filtered_training_dist.jpg"%figdir)
+    #
+    # plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+    #                             figdir="%s/3C_catalog_dist.jpg"%figdir)
+    # df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=40000, z_indicator="channelz")
+    # plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
+    #                             figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
+    # # combine the waveforms
+    # combine_waveforms(df_pairs, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
 
     ################ Validation ################
-    # # Only use this for validation/test data because much smaller size
-    # df_match_dist = match_sampling_distributions(entire_cat_df, df_clean, 15000, "Magnitude distribution of different data sets")
-    # #Plot distributions and make dataframe of events to combine
-    # # plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
-    # # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
-    # #                             figdir="%s/filtered_validation_dist.jpg"%figdir)
-    # # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
-    # #                             filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
-    # # plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-    # #                             figdir="%s/3C_catalog_dist.jpg"%figdir)
-    # #combine the waveforms
-    # combine_waveforms(df_match_dist, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
+    # Only use this for validation/test data because much smaller size
+    df_match_dist = match_sampling_distributions(entire_cat_df, df_clean, 15000, "Magnitude distribution of different data sets")
+    #Plot distributions and make dataframe of events to combine
+    plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
+    plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
+                                figdir="%s/filtered_validation_dist.jpg"%figdir)
+    plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
+                                filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
+    plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+                                figdir="%s/3C_catalog_dist.jpg"%figdir)
+    #combine the waveforms
+    combine_waveforms(df_match_dist, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
