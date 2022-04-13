@@ -73,9 +73,13 @@ def match_sampling_distributions(df_tomatch, df_tosample, n_waveforms, title, bi
     for i in range(len(bins)-1):
         df_mag_range = df_tosample.loc[(df_tosample["magnitude"] >= bins[i]) & (df_tosample["magnitude"] < bins[i+1])]
         mag_range_inds = df_mag_range.index.values
-        random_rows = np.random.randint(low = 0, high = len(mag_range_inds), size = int(n_waveforms*counts[i]))
+        random_rows = np.random.randint(low = 0, high = len(mag_range_inds), size = round(n_waveforms*counts[i]))
         all_rows.append(mag_range_inds[random_rows[:]][:])
+
     all_rows = np.concatenate(all_rows)
+    if len(all_rows)%2:
+        all_rows = all_rows[:-1]
+
     df_sampled = df_tosample.loc[all_rows]
     df_work_tosample = df_tosample[(df_tosample['magnitude_type'] == 'l') & (df_tosample['magnitude'] >= min_ml)]
     df_work_sampled = df_sampled[(df_sampled['magnitude_type'] == 'l') & (df_sampled['magnitude'] >= min_ml)]
@@ -87,6 +91,24 @@ def match_sampling_distributions(df_tomatch, df_tosample, n_waveforms, title, bi
     plt.ylabel("Probability")
     plt.legend()
     plt.show()
+
+    # The rows are currently group by magnitude bin, shuffle them to get more variety in mags of event pairs
+    shuffle_inds = np.arange(len(df_sampled))
+    np.random.shuffle(shuffle_inds)
+    df_sampled = df_sampled.iloc[shuffle_inds]
+
+    # Make sure M2 >= M1-0.5 by flipping event order if req not met
+    new_inds = []
+    for ind in range(0, len(df_sampled), 2):
+        first_ev = ind
+        second_ev = ind+1
+        if df_sampled.iloc[ind + 1].magnitude < df_sampled.iloc[ind].magnitude-0.5:
+            first_ev = ind+1
+            second_ev = ind
+        new_inds.append(first_ev)
+        new_inds.append(second_ev)
+
+    df_sampled = df_sampled.iloc[new_inds]
 
     return df_sampled
 
