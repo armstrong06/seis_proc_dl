@@ -23,20 +23,24 @@ class UNet(BaseModel):
         self.phase_type = self.config.model.phase_type
         self.learning_rate = self.config.train.learning_rate
         self.batch_size = self.config.train.batch_size
-        self.epochs = self.config.train.epochs
         self.detection_threshold = self.config.train.detection_threshold
         self.train_file = self.config.train.train_hdf5_file
         self.validation_file = self.config.train.validation_hdf5_file
         self.model_out_dir = self.config.train.model_out_directory
         
-        self.model_path = self.make_model_path(self.model_out_dir)
+        self.model_path = self.model_out_dir #self.make_model_path(self.model_out_dir)
         self.evaluator = None
-        self.center_window = self.config.data.max_lag
+        self.center_window = self.config.data.maxlag
+
+        self.train_epochs = self.config.train.epochs
+        self.evaluation_epoch = -1  # Epoch that is being evaluate - -1 if model not trained/loaded
+
+        self.results_out_dir = f"{self.model_out_dir}/results"
 
     @staticmethod
     def read_data(data_file):
         # TODO: This didn't work if data_file path is relative to the main script location
-        with h5py.File(data_file) as f:
+        with h5py.File(data_file, "r") as f:
             X = f['X'][:]
             Y = f['Y'][:]
             T = f['Pick_index'][:] 
@@ -44,12 +48,20 @@ class UNet(BaseModel):
         return X, Y, T
 
     def load_model_state(self, model_in):
+        if self.evaluation_epoch > 0:
+            print("Can't load model state after training is complete...")
+            return
+
         if (not os.path.exists(model_in)):
             print("Model", model_in, " does not exist")
-            return None
+            return
 
+        print(f"Loading model state with {model_in}")
         check_point = torch.load(model_in)
         self.model.load_state_dict(check_point['model_state_dict'])
+        print(check_point["epoch"], check_point["loss"])
+
+        self.evaluation_epoch = check_point["epoch"]
 
     def load_data(self, data_file, shuffle=True):
         # TODO: This didn't work if data_file path is relative to the main script location
@@ -89,31 +101,36 @@ class UNet(BaseModel):
         trainer = UNetTrainer(self.model, optimizer, loss, self.model_path, self.device, 
                         phase_type=self.phase_type, detection_thresh=self.detection_threshold, 
                         minimum_presigmoid_value=self.minimum_presigmoid_value)
-        trainer.train(train_loader, self.epochs, val_loader=validation_loader)
+        trainer.train(train_loader, self.train_epochs, val_loader=validation_loader)
+        self.evaluation_epoch = self.train_epochs
 
-
-    def evaluate(self, test_file):
+    def evaluate(self, test_file, pick_method="single"):
         "Evaluate dataset on the final model"
+        if self.evaluation_epoch < 0:
+            print("No model state loaded - load or train a model first")
+            return
+
         #test_loader = self.load_data(test_file, shuffle=False)
-        out_dir = f"{self.model_out_dir}/results"
         X, Y, T = self.read_data(test_file)
         evaluator = UNetEvaluator(self.batch_size, self.device, self.center_window, 
                                 minimum_presigmoid_value=self.minimum_presigmoid_value)
         evaluator.set_model(self.model)
-        post_probs, pick_info = evaluator.apply_model(X, "single")
-        results = evaluator.tabulate_metrics(T, pick_info[1], pick_info[0], str(self.epochs))
-        evaluator.save_posterior_probs(post_probs, pick_info[1], pick_info[0], out_dir, self.epochs)
-        resids = evaluator.calculate_residuals(T, pick_info[0], pick_info[1], self.epochs)
-        evaluator.save_result(results, f"{out_dir}/{self.epochs}_summary.csv")
-        evaluator.save_result(resids, f"{out_dir}/{self.epochs}_residuals.csv")
+        post_probs, pick_info = evaluator.apply_model(X, pick_method)
+        results = evaluator.tabulate_metrics(T, pick_info[1], pick_info[0], str(self.evaluation_epoch))
+        evaluator.save_posterior_probs(post_probs, pick_info[1], pick_info[0], self.results_out_dir, self.evaluation_epoch)
+        resids = evaluator.calculate_residuals(T, pick_info[0], pick_info[1], self.evaluation_epoch)
+        evaluator.save_result(results, f"{self.results_out_dir}/{self.evaluation_epoch}_summary.csv")
+        evaluator.save_result(resids, f"{self.results_out_dir}/{self.evaluation_epoch}_residuals.csv")
 
-    def evaluate_specified_models(self, test_file, model_states_path, tols=np.linspace(0.05, 0.95, 21)):
-        out_dir = f"{self.model_out_dir}/results"
+    # TODO: Make this a class method?
+    def evaluate_specified_models(self, test_file, epochs, tols=np.linspace(0.05, 0.95, 21), pick_method="single"):
+        if self.evaluation_epoch >= 0:
+            print("Can't do multi-model evaluation with model state loaded")
+        
         single_evaluator = UNetEvaluator(self.batch_size, self.device, self.center_window, 
                                 minimum_presigmoid_value=self.minimum_presigmoid_value)
-        model = self.build(self.config.model.num_channels, self.config.model.num_classes)
-        multi_evaluator = MultiModelEval(model, model_states_path, single_evaluator, out_dir)
-        multi_evaluator.evaluate_over_models(test_file, tols)
+        multi_evaluator = MultiModelEval(self.model, self.model_path, epochs, single_evaluator, self.results_out_dir)
+        multi_evaluator.evaluate_over_models(test_file, tols, pick_method)
 
     def make_model_path(self, path):
         return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}'

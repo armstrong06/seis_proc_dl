@@ -43,9 +43,8 @@ class UNetEvaluator():
             print("No model set!")
             return 
 
-        X = torch.from_numpy(X_batch.transpose((0, 2, 1))).float().to(self.device)
         # Get predictions
-        Y_est = self.model.forward(X)
+        Y_est = self.model.forward(X_batch)
         # Save the presigmoid values
         if self.debug_model_output:
             Y_presigmoid = Y_est.squeeze().to('cpu').detach().numpy()
@@ -55,7 +54,7 @@ class UNetEvaluator():
                 Y_est = clamp_presigmoid_values(Y_est, self.min_presigmoid_value)
             Y_est = torch.sigmoid(Y_est)
 
-        Y_est = Y_est.squeeze().to('cpu').detach().numpy()
+        Y_est = Y_est.squeeze()
 
         if self.debug_model_output:
             return Y_est, Y_presigmoid
@@ -81,7 +80,7 @@ class UNetEvaluator():
         pred_pick_prob = np.zeros(n_examples)
         all_posterior_probs = np.zeros([n_examples, n_samples])
 
-        if pick_method is "multiple":
+        if pick_method == "multiple":
             all_widths = []
             pred_pick_index = []
             pred_pick_prob = []
@@ -102,11 +101,9 @@ class UNetEvaluator():
                 all_presigmoid_values[i1:i2, :] = Y_presigmoid
             else:
                 Y_est, _ = self.apply_model_to_batch(X)
-
-            all_posterior_probs[i1:i2, :] = Y_est
                 
             # Pick indices and probabilities
-            if pick_method is "single":
+            if pick_method == "single":
                 values, indices = self.get_single_picks(Y_est, n_samples)
                 for k in range(i1,i2):
                     pred_pick_prob[k] = values[k-i1]
@@ -117,6 +114,8 @@ class UNetEvaluator():
                     pred_pick_prob.append(values)
                     pred_pick_index.append(indices)
                     all_widths.append(widths)
+
+            all_posterior_probs[i1:i2, :] = Y_est.to('cpu').detach().numpy()
 
         output1 = (all_posterior_probs)
         if self.debug_model_output:
@@ -147,7 +146,7 @@ class UNetEvaluator():
         return values, indices
 
 
-    def tabulate_metrics(self, true_pick_index, est_pick_proba, est_pick_index, model_tag,
+    def tabulate_metrics(self, true_pick_index, est_pick_proba, est_pick_index, model_epoch,
                         tols = [0.1, 0.25, 0.5, 0.75, 0.9]):
         results = []
 
@@ -169,23 +168,40 @@ class UNetEvaluator():
             index_resid = np.copy(index_resid[0:j])
             if (len(index_resid) > 0):
                 trimmed_mean, trimmed_std = self.compute_outer_fence_mean_standard_deviation(index_resid)
+                residual_mean = np.mean(index_resid)
+                residual_std = np.std(index_resid)
             else:
                 trimmed_mean = 0
                 trimmed_std = 0
+                residual_mean = 0
+                residual_std = 0
             
             # I had to add label into this or it breaks when 100% accuracte. If there are more than 2 classes, will need to edit this. 
             tn, fp, fn, tp = confusion_matrix(Y_obs, Y_est, labels=[0, 1]).ravel()
-            acc  = (tn + tp)/(tp + tn + fp + fn)
-            prec   = tp/(tp + fp)
-            recall = tp/(tp + fn)
-            dic = {"model": model_tag,
+            
+            if (tp + tn + fp + fn) == 0:
+                acc = 0
+            else:
+                acc  = (tn + tp)/(tp + tn + fp + fn)
+            
+            if (tp + fp) == 0:
+                prec = 0
+            else:
+                prec   = tp/(tp + fp)
+
+            if (tp + fn) == 0:
+                recall = 0
+            else:
+                recall = tp/(tp + fn)
+
+            dic = {"epoch": model_epoch,
                 "n_picks": n_picks,
                 "n_picked": len(index_resid),
                 "tolerance": tol,
                 "accuracy": acc,
                 "precision": prec,
-                "residual_mean": np.mean(index_resid),
-                "residual_std": np.std(index_resid),
+                "residual_mean": residual_mean,
+                "residual_std": residual_std,
                 "trimmed_residual_mean": trimmed_mean,
                 "trimmed_residual_std": trimmed_std,
                 "recall": recall}
@@ -219,6 +235,8 @@ class UNetEvaluator():
         of3 = q3 + 1.5*iqr
         trimmed_residuals = residuals[(residuals > of1) & (residuals < of3)]
         #print(len(trimmed_residuals), len(residuals), of1, of3)
+        if len(trimmed_residuals) == 0:
+            return 0, 0
         xmean = np.mean(trimmed_residuals)
         xstd = np.std(trimmed_residuals) 
         return xmean, xstd 
