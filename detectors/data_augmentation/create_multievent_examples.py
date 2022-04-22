@@ -73,9 +73,13 @@ def match_sampling_distributions(df_tomatch, df_tosample, n_waveforms, title, bi
     for i in range(len(bins)-1):
         df_mag_range = df_tosample.loc[(df_tosample["magnitude"] >= bins[i]) & (df_tosample["magnitude"] < bins[i+1])]
         mag_range_inds = df_mag_range.index.values
-        random_rows = np.random.randint(low = 0, high = len(mag_range_inds), size = int(n_waveforms*counts[i]))
+        random_rows = np.random.randint(low = 0, high = len(mag_range_inds), size = round(n_waveforms*counts[i]))
         all_rows.append(mag_range_inds[random_rows[:]][:])
+
     all_rows = np.concatenate(all_rows)
+    if len(all_rows)%2:
+        all_rows = all_rows[:-1]
+
     df_sampled = df_tosample.loc[all_rows]
     df_work_tosample = df_tosample[(df_tosample['magnitude_type'] == 'l') & (df_tosample['magnitude'] >= min_ml)]
     df_work_sampled = df_sampled[(df_sampled['magnitude_type'] == 'l') & (df_sampled['magnitude'] >= min_ml)]
@@ -87,6 +91,24 @@ def match_sampling_distributions(df_tomatch, df_tosample, n_waveforms, title, bi
     plt.ylabel("Probability")
     plt.legend()
     plt.show()
+
+    # The rows are currently group by magnitude bin, shuffle them to get more variety in mags of event pairs
+    shuffle_inds = np.arange(len(df_sampled))
+    np.random.shuffle(shuffle_inds)
+    df_sampled = df_sampled.iloc[shuffle_inds]
+
+    # Make sure M2 >= M1-0.5 by flipping event order if req not met
+    new_inds = []
+    for ind in range(0, len(df_sampled), 2):
+        first_ev = ind
+        second_ev = ind+1
+        if df_sampled.iloc[ind + 1].magnitude < df_sampled.iloc[ind].magnitude-0.5:
+            first_ev = ind+1
+            second_ev = ind
+        new_inds.append(first_ev)
+        new_inds.append(second_ev)
+
+    df_sampled = df_sampled.iloc[new_inds]
 
     return df_sampled
 
@@ -122,11 +144,11 @@ def generate_sampling_distribution(df,
         sta = df_row.station
         cha = df_row[z_indicator]
         loc = df_row.location
+        mag = df_row.magnitude
 
-        # TODO: Add mag requirment to df_subset (M1-0.3 <= M2)
         # Get a subset of matching events (but don't let me match to myself - hence the check on evid)
         df_subset = df[ (df.evid != evid) & (df.network == net) & (df.station == sta) & (df[z_indicator] == cha) &
-                        (df.location == loc)]
+                        (df.location == loc) & (df.magnitude >= mag-0.5)]
 
         if (len(df_subset) < 1):
             continue
@@ -492,7 +514,7 @@ if __name__ == "__main__":
     pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021/p_resampled_10s"
     outpref = "%s/synthetic_multievent_waveforms"%pref
     outfile_pref = "%s/trainP.10s.1dup"%outpref
-    figdir = "%s/trani_figs"%outpref
+    figdir = "%s/train_figs"%outpref
 
     if not os.path.exists(outpref):
         os.makedirs(outpref)
@@ -537,12 +559,12 @@ if __name__ == "__main__":
     # # Only use this for validation/test data because much smaller size
     # df_match_dist = match_sampling_distributions(entire_cat_df, df_clean, 15000, "Magnitude distribution of different data sets")
     # #Plot distributions and make dataframe of events to combine
-    # # plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
-    # # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
-    # #                             figdir="%s/filtered_validation_dist.jpg"%figdir)
-    # # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
-    # #                             filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
-    # # plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-    # #                             figdir="%s/3C_catalog_dist.jpg"%figdir)
+    # plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
+    # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
+    #                             figdir="%s/filtered_validation_dist.jpg"%figdir)
+    # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
+    #                             filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
+    # plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+    #                             figdir="%s/3C_catalog_dist.jpg"%figdir)
     # #combine the waveforms
     # combine_waveforms(df_match_dist, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
