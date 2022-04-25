@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead/small_tests/p_resampled_10s'
-f = h5py.File(f'{pref}/p_train.10s.2dup.h5', 'r')
-df = pd.read_csv(f'{pref}/p_train.10s.2dup.csv')#, dtype={'location': object})
-for i in range(5, 25):
+pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector/s_resampled_10s_normalized'
+f = h5py.File(f'{pref}/S.train.10s.1dup.h5', 'r')
+df = pd.read_csv(f'{pref}/S.train.10s.1dup.csv')#, dtype={'location': object})
+for i in range(10000, 10010):
     #plt.plot(np.linspace(-3,3,600), f['X'][251340][:])
     idx = i#(i + 1)*1510 + i
     print(idx)

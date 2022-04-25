@@ -1,7 +1,9 @@
+import sys
+sys.path.append("..")
 from data_processing.split_data_detectors import SplitDetectorData
 
 window_duration = 10.0
-n_duplicate_train = 2
+n_duplicate_train = 1
 dt = 0.01  # Sampling period (seconds)
 train_frac = 0.8
 noise_train_frac = 0.8
@@ -18,7 +20,8 @@ noise_meta_file = f'{pref}/stead/noiseStead_2000.csv'
 outpref = f"{pref}/sDetector/s_resampled_10s_normalized/S."
 
 # Initialize
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, outpref, pick_sample=pick_sample)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, outpref, pick_sample=pick_sample,
+                            reorder_waveforms=True)
 # Handle the signal
 spliter.load_signal_data(h5_filename, meta_file)
 spliter.split_signal(train_frac, test_frac, extract_events_params=None)
