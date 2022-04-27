@@ -208,6 +208,129 @@ class UNetEvaluator():
             results.append(dic)
         return results
 
+    def tabulate_metrics_mew(self, T_test, T_test2, Y_proba, T_est_index, epoch, Y_data_est, Y_data_act,
+                        tols=[0.1, 0.25, 0.5, 0.75, 0.9]):
+        results_p1 = []
+        results_p2 = []
+        results_comb = []
+        results_js = []
+        js_arrays = []
+        # makes a binary array of the real picks
+        Y_obs = (T_test >= 0) * 1
+        Y_obs2 = (T_test2 >= 0) * 1
+        n_picks1 = np.sum(Y_obs)
+        n_picks2 = np.sum(Y_obs2)
+
+        for tol in tols:
+            Y_est = (Y_proba > tol) * 1
+
+            ## Residual information will not mean much here because only calculate pick residuals for those close together
+            ## Can look at how many residuals have nan values though
+            index_resid = np.full(len(T_test)+len(T_test2), np.nan)
+            jaccard_sims = np.full(len(T_test), np.nan)
+            jaccard_sims_proba = np.full(len(T_test), np.nan)
+            resids1 = np.full(len(T_test), np.nan)
+            resids2 = np.full(len(T_test2), np.nan)
+            j = 0
+            j1 = 0
+            j2 = 0
+            est_picks_cnt = 0
+            for i in range(len(T_test)):               
+                # Get picks with probability > threshold 
+                est_picks = T_est_index[i][np.where(Y_proba[i] > tol)[0]]
+                est_picks_cnt += len(est_picks)
+
+                # TODO: check if this should be < or <=
+                if i < len(Y_obs2):
+                    actual_picks = [T_test[i], T_test2[i]]
+                else:
+                    actual_picks = [T_test[i]]
+                    
+                js, resids = self.calculate_pick_similiarity(est_picks, actual_picks)
+
+                if (Y_obs[i] == 1 and np.any(Y_est[i] == 1)):
+                    if i < len(Y_obs2):
+                        index_resid[j:j+2] = resids[:]
+                        j = j + 2
+                        resids1[j1] = resids[0]
+                        resids2[j2] = resids[1]
+                        j1 += 1
+                        j2 += 1
+                    else:
+                        index_resid[j] = resids[0]
+                        j = j + 1
+                        resids1[j1] = resids[0]
+                        j1 += 1
+
+                # TODO: add in other way of measuring JS
+                jaccard_sims[i] = js
+                jaccard_sims_proba[i] = self.calculate_jaccard_similarity_proba(Y_data_act[i], Y_data_est[i], tol)
+
+
+            index_resid = np.copy(index_resid[0:j])
+
+            # assign 0 and ones based on where there was a resiudal calculated or not
+            Y_est1 = (~np.isnan(resids1)) * 1
+            Y_est2 = (~np.isnan(resids2)) * 1
+            fp = est_picks_cnt - sum(Y_est1) - sum(Y_est2)
+            assert fp >= 0, "FP is negative"
+
+            def calc_stats(Y_obs, Y_est, n_picks, residuals, fp):
+                residuals = residuals[np.where(~np.isnan(residuals))[0]]
+
+                trimmed_mean, trimmed_std = self.compute_outer_fence_mean_standard_deviation(residuals)
+
+                # I had to add label into this or it breaks when 100% accuracte. If there are more than 2 classes, will need to edit this.
+                tn, fp_nothing, fn, tp = confusion_matrix(Y_obs, Y_est, labels=[0, 1]).ravel()
+                # TODO: I'm not sure if this is right
+                acc = (tn + tp) / (tp + tn + fp + fn)
+                prec = tp / (tp + fp)
+                recall = tp / (tp + fn)
+                dic = {"epoch": epoch,
+                    "n_picks": n_picks,
+                    "n_picked": len(residuals),
+                    "tolerance": tol,
+                    "accuracy": acc,
+                    "precision": prec,
+                    "residual_mean": np.mean(residuals),
+                    "residual_std": np.std(residuals),
+                    "trimmed_residual_mean": trimmed_mean,
+                    "trimmed_residual_std": trimmed_std,
+                    "recall": recall}
+                return dic
+
+            # Results for individual picks 
+            dict_p1 = calc_stats(Y_obs, Y_est1, n_picks1, resids1, fp)
+            dict_p2 = calc_stats(Y_obs2, Y_est2, n_picks2, resids2, fp)
+            # Results when having all the picks for a waveform counts as a success 
+            tmp = np.full(len(Y_est1), 1)
+            tmp[0:len(Y_est2)] = Y_est2
+            combined_Yest = Y_est1 * tmp
+            dict_comb = calc_stats(Y_obs, combined_Yest, n_picks1+n_picks2, index_resid, fp)
+
+            results_p1.append(dict_p1)
+            results_p2.append(dict_p2)
+            results_comb.append(dict_comb)
+            # save JS seperatley since it is the same for all picks
+            results_js.append(
+                    {"epoch": epoch,
+                    "tolerance": tol,
+                    "js_mean": np.mean(jaccard_sims),
+                    "js_min": np.min(jaccard_sims),
+                    "js_max": np.max(jaccard_sims),
+                    "js_dist": np.histogram(jaccard_sims),
+                    "js_proba_mean": np.mean(jaccard_sims_proba),
+                    "js_proba_min": np.min(jaccard_sims_proba),
+                    "js_proba_max": np.max(jaccard_sims_proba),
+                    "js_proba_dist": np.histogram(jaccard_sims_proba)})
+
+            js_arrays.append({"epoch":epoch, 
+                                "tol":tol,
+                                "js_pick": jaccard_sims,
+                                "js_proba":jaccard_sims_proba})
+
+        return results_p1, results_p2, results_comb, results_js, js_arrays
+
     @staticmethod
     def calculate_residuals(T_test, T_est_index, Y_proba, epoch):
         resids = []
@@ -284,3 +407,50 @@ class UNetEvaluator():
                 i1 += window_size
 
         return np.array(proba_values), np.array(picks), np.array(widths)
+
+    @staticmethod
+    def calculate_pick_similiarity(Y_est, Y_act, allowed_pick_diff=30):
+        intersect = 0
+        resids = np.full(len(Y_act), np.nan)
+        for i in range(len(Y_act)):
+            closeT = np.where(abs(Y_act[i]-Y_est) < allowed_pick_diff)[0]
+            if len(closeT) > 0:
+                if len(closeT) > 1:
+                    print("Muliple matching detections")
+                    print("act", Y_act)
+                    print("est", Y_est)
+                    closeT = closeT[np.where(abs(Y_act[i]-Y_est[closeT]) == np.min(abs(Y_act[i]-Y_est[closeT])))[0]]
+                    # TODO: I should probably incorporate probabilities into this so it can break a tie
+                    if len(closeT) > 1:
+                        print("There were two picks the same distance away - randomly choose one")
+                        closeT = closeT[np.random.randint(0, len(closeT), 1)]
+                    print("Choosing", Y_est[closeT])
+                assert len(closeT) <= 1, "Multiple matching detections"
+                intersect += 1
+                resids[i] = (Y_act[i]-Y_est[closeT])
+
+        union = len(Y_est) + len(Y_act) - intersect
+
+        if union == 0:
+            assert len(Y_est)==0 and len(Y_act)==0, "union is 0 but pick array sizes are not"
+            assert intersect == 0
+            return 1, resids
+        # print("jaccard similarity:", intersect/union)
+        return intersect/union, resids
+
+    @staticmethod
+    def calculate_jaccard_similarity_proba(Y1, Y2, thresh):
+        Y1 = Y1.reshape((Y1.shape[0], 1))
+        Y2= Y2.reshape((Y2.shape[0], 1))
+        Y1_bin = (Y1 >= thresh) * 1
+        Y2_bin = (Y2 >= thresh) * 1
+        compare = Y1_bin * Y2_bin
+        intersect = len(np.where(compare)[0])
+        union = len(np.where(Y1_bin == 1)[0]) + len(np.where(Y2_bin == 1)[0]) - intersect
+
+        if union == 0:
+            assert len(np.where(Y1_bin == 1)[0]) == 0 and len(np.where(Y2_bin == 1)[0]) == 0, "Union is 0 but lengths are not"
+            assert intersect == 0
+            return 1
+
+        return intersect/union

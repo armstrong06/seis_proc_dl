@@ -123,7 +123,7 @@ class UNet(BaseModel):
         evaluator.save_result(resids, f"{self.results_out_dir}/{self.evaluation_epoch}_residuals.csv")
 
     # TODO: Make this a class method?
-    def evaluate_specified_models(self, test_file, epochs, batch_size=None, tols=np.linspace(0.05, 0.95, 21), pick_method="single"):
+    def evaluate_specified_models(self, test_file, epochs, batch_size=None, tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False):
         if self.evaluation_epoch >= 0:
             print("Can't do multi-model evaluation with model state loaded")
         
@@ -132,7 +132,11 @@ class UNet(BaseModel):
         single_evaluator = UNetEvaluator(batch_size, self.device, self.center_window, 
                                 minimum_presigmoid_value=self.minimum_presigmoid_value)
         multi_evaluator = MultiModelEval(self.model, self.model_path, epochs, single_evaluator, self.results_out_dir)
-        multi_evaluator.evaluate_over_models(test_file, tols, pick_method)
+        
+        if mew:
+            multi_evaluator.evaluate_over_models_mew(test_file, tols)
+        else:
+            multi_evaluator.evaluate_over_models(test_file, tols, pick_method)
 
     def make_model_path(self, path):
         return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}'
