@@ -253,7 +253,7 @@ class UNetEvaluator():
                     
                 js, resids = self.calculate_pick_similiarity(est_picks, actual_picks)
 
-                if (Y_obs[i] == 1 and np.any(Y_est[i] == 1)):
+                if (Y_obs[i] == 1 and np.any(Y_est == 1)):
                     if i < len(Y_obs2):
                         index_resid[j:j+2] = resids[:]
                         j = j + 2
