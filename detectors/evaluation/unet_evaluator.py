@@ -108,14 +108,17 @@ class UNetEvaluator():
                 for k in range(i1,i2):
                     pred_pick_prob[k] = values[k-i1]
                     pred_pick_index[k] = indices[k-i1]
+                # get_single_picks uses pytorch tensor
+                all_posterior_probs[i1:i2, :] = Y_est.to('cpu').detach().numpy()
             elif pick_method == "multiple":
+                Y_est = Y_est.to('cpu').detach().numpy()
                 for k in range(i1, i2):
                     values, indices, widths = self.sliding_window_phase_arrival_estimator(Y_est[k-i1], thresh=0.1)
                     pred_pick_prob.append(values)
                     pred_pick_index.append(indices)
                     all_widths.append(widths)
-
-            all_posterior_probs[i1:i2, :] = Y_est.to('cpu').detach().numpy()
+                # sliding_window_phase_arrival_estimator uses numpy array
+                all_posterior_probs[i1:i2, :] = Y_est
 
         output1 = (all_posterior_probs)
         if self.debug_model_output:
@@ -125,7 +128,7 @@ class UNetEvaluator():
         if pick_method == "single":
             output2 = (pred_pick_index, pred_pick_prob)
         elif pick_method == "multiple":
-            output2 = (pred_pick_index, pred_pick_prob, widths)
+            output2 = (pred_pick_index, pred_pick_prob, all_widths)
 
         return output1, output2 
 
@@ -222,7 +225,7 @@ class UNetEvaluator():
         n_picks2 = np.sum(Y_obs2)
 
         for tol in tols:
-            Y_est = (Y_proba > tol) * 1
+            # Y_est = (Y_proba > tol) * 1
 
             ## Residual information will not mean much here because only calculate pick residuals for those close together
             ## Can look at how many residuals have nan values though
@@ -236,6 +239,8 @@ class UNetEvaluator():
             j2 = 0
             est_picks_cnt = 0
             for i in range(len(T_test)):               
+                Y_est = (Y_proba[i] > tol) *1             
+
                 # Get picks with probability > threshold 
                 est_picks = T_est_index[i][np.where(Y_proba[i] > tol)[0]]
                 est_picks_cnt += len(est_picks)

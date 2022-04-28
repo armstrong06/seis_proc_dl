@@ -189,7 +189,7 @@ class MultiModelEval():
                                         'residual1': all_resids1[pind],
                                         'residual2': all_resids2[pind],
                                         'is_match': is_match,
-                                        'width': widths[i]})
+                                        'width': widths[i][pind]})
                                         #'snr': snrs[i] 
 
             metric_p1, metric_p2, metric_comb, metric_js, js_arrays = self.evaluator.tabulate_metrics_mew(T_test, T_test2, Y_proba, T_est_index, epoch, post_probs,
