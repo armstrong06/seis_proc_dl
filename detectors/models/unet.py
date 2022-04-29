@@ -41,7 +41,7 @@ class UNet(BaseModel):
         outdir = f"{self.model_out_dir}/{test_type}_results"
         if (os.path.exists(outdir)):
             raise ValueError(f"output directory {outdir} already exists.")
-        self.set_results_out_dir = outdir
+        self.results_out_dir = outdir
 
     @staticmethod
     def read_data(data_file):
@@ -131,6 +131,7 @@ class UNet(BaseModel):
         evaluator.save_result(resids, f"{self.results_out_dir}/{self.evaluation_epoch}_residuals.csv")
 
     # TODO: Make this a class method?
+    # TODO: Add way to evalute the selected pre-trained model first?
     def evaluate_specified_models(self, test_file, epochs, test_type, batch_size=None, tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False):
         if self.evaluation_epoch >= 0:
             print("Can't do multi-model evaluation with model state loaded")
