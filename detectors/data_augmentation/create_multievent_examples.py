@@ -93,9 +93,11 @@ def match_sampling_distributions(df_tomatch, df_tosample, n_waveforms, title, bi
     plt.show()
 
     # The rows are currently group by magnitude bin, shuffle them to get more variety in mags of event pairs
-    shuffle_inds = np.arange(len(df_sampled))
-    np.random.shuffle(shuffle_inds)
-    df_sampled = df_sampled.iloc[shuffle_inds]
+    # Commenting this out because I decided to add a constraint on the first event as well - not exactly
+    # the same as the training constraint here, but at least events will be closer together
+    # shuffle_inds = np.arange(len(df_sampled))
+    # np.random.shuffle(shuffle_inds)
+    # df_sampled = df_sampled.iloc[shuffle_inds]
 
     # Make sure M2 >= M1-0.5 by flipping event order if req not met
     new_inds = []
@@ -148,7 +150,7 @@ def generate_sampling_distribution(df,
 
         # Get a subset of matching events (but don't let me match to myself - hence the check on evid)
         df_subset = df[ (df.evid != evid) & (df.network == net) & (df.station == sta) & (df[z_indicator] == cha) &
-                        (df.location == loc) & (df.magnitude >= mag-0.5)]
+                        (df.location == loc) & (df.magnitude >= mag-0.5) & (df.magnitude <= mag+1.5)]
 
         if (len(df_subset) < 1):
             continue

@@ -14,7 +14,7 @@ class SplitDetectorData():
     # TODO: I do not know that this is the best way to implement this class
 
     def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref=None, target_shrinkage=None,
-                 pick_sample=None, normalize_seperate=True):
+                 pick_sample=None, normalize_seperate=True, reorder_waveforms=False):
         self.window_duration = window_duration
         self.dt = dt
         self.max_pick_shift = max_pick_shift
@@ -23,6 +23,7 @@ class SplitDetectorData():
         self.target_shrinkage = target_shrinkage # make it so that we classifiy at this fraction of central points in the window
         self.pick_sample = pick_sample
         self.normalize_seperate = normalize_seperate
+        self.reorder = reorder_waveforms # Switch the first and last channels of data - Want ENZ
 
         if self.outfile_pref is not None:
             self.__make_directory()
@@ -270,6 +271,11 @@ class SplitDetectorData():
             X = np.asarray(h5_file['X'])
             Y = np.asarray(h5_file['Y'])
             h5_file.close()
+
+        if self.reorder:
+            tmp = X[:, :, 0].copy()
+            X[:, :, 0] = X[:, :, 2]
+            X[:, :, 2] = tmp
 
         if meta_csv_file is None:
             meta_df = None
