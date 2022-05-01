@@ -207,7 +207,12 @@ class UNetEvaluator():
                 "residual_std": residual_std,
                 "trimmed_residual_mean": trimmed_mean,
                 "trimmed_residual_std": trimmed_std,
-                "recall": recall}
+                "recall": recall, 
+                "tp": tp, 
+                "tn": tn, 
+                "fp": fp, 
+                "fn":fn}
+
             results.append(dic)
         return results
 
@@ -223,6 +228,7 @@ class UNetEvaluator():
         Y_obs2 = (T_test2 >= 0) * 1
         n_picks1 = np.sum(Y_obs)
         n_picks2 = np.sum(Y_obs2)
+        n_noise = len(T_test) - n_picks1
 
         for tol in tols:
             # Y_est = (Y_proba > tol) * 1
@@ -234,9 +240,11 @@ class UNetEvaluator():
             jaccard_sims_proba = np.full(len(T_test), np.nan)
             resids1 = np.full(len(T_test), np.nan)
             resids2 = np.full(len(T_test2), np.nan)
+            noise_class = np.zeros(n_noise)
             j = 0
             j1 = 0
             j2 = 0
+
             est_picks_cnt = 0
             for i in range(len(T_test)):               
                 Y_est = (Y_proba[i] > tol) *1             
@@ -253,7 +261,9 @@ class UNetEvaluator():
                     
                 js, resids = self.calculate_pick_similiarity(est_picks, actual_picks)
 
+                # If a pick is missed, the resid should be nan. noise will already have nan value
                 if (Y_obs[i] == 1 and np.any(Y_est == 1)):
+                    # TODO: I feel like the J indexing may be wrong - want picks to match up with Y_obs
                     if i < len(Y_obs2):
                         index_resid[j:j+2] = resids[:]
                         j = j + 2
@@ -266,6 +276,9 @@ class UNetEvaluator():
                         j = j + 1
                         resids1[j1] = resids[0]
                         j1 += 1
+                elif (Y_obs[i] == 0 and np.any(Y_est == 1)):
+                    # Keep track of where there were picks in a noise window so we can look at the TN rate
+                    noise_class[i-n_picks1] = 1
 
                 # TODO: add in other way of measuring JS
                 jaccard_sims[i] = js
@@ -274,11 +287,17 @@ class UNetEvaluator():
 
             index_resid = np.copy(index_resid[0:j])
 
-            # assign 0 and ones based on where there was a resiudal calculated or not
+            # assign 0 and ones based on where there was a residual calculated or not
             Y_est1 = (~np.isnan(resids1)) * 1
             Y_est2 = (~np.isnan(resids2)) * 1
-            fp = est_picks_cnt - sum(Y_est1) - sum(Y_est2)
+            # (takes into account picks that are made but not in the right locations?)
+            fp = est_picks_cnt - sum(Y_est1) - sum(Y_est2)  # number of picks made - number of picks assigned to p1 or p2 
+            #fp = est_picks_cnt - n_picks1 - n_picks2 # number of picks made - number of known picks 
             assert fp >= 0, "FP is negative"
+
+            # Since FP is being calculated seperately, all noise observations are being assigned noise by default, even if the model made a pick.
+            # Change estimated noise classification to 1 in there were any proba over threshold, so we can get an accurate estimate of TN 
+            Y_est1[-n_noise:] = noise_class
 
             def calc_stats(Y_obs, Y_est, n_picks, residuals, fp):
                 residuals = residuals[np.where(~np.isnan(residuals))[0]]
@@ -301,7 +320,13 @@ class UNetEvaluator():
                     "residual_std": np.std(residuals),
                     "trimmed_residual_mean": trimmed_mean,
                     "trimmed_residual_std": trimmed_std,
-                    "recall": recall}
+                    "recall": recall, 
+                    "tp": tp, 
+                    "tn": tn, 
+                    "fp": fp, 
+                    "fn": fn, 
+                    "fp_notused": fp_nothing}
+
                 return dic
 
             # Results for individual picks 

@@ -71,8 +71,9 @@ class MultiModelEval():
             T_est_index = pick_info[0]
 
             for i in range(len(T_test)):
-                if (T_test[i] < 0):
-                    break
+                # Removing this becuase I want to be able to calculate confusion matrices after the fact
+                # if (T_test[i] < 0):
+                #     break
                 resids.append({'model': epoch,
                                 'true_lag': T_test[i],
                                 'residual': T_test[i] - T_est_index[i],
