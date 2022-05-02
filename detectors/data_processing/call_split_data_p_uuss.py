@@ -1,3 +1,5 @@
+import sys
+sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl")
 from data_processing.split_data_detectors import SplitDetectorData
 import numpy as np
 import pandas as pd
@@ -14,7 +16,7 @@ max_pick_shift = 250
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive'
 # ys_noise_h5_filename = f'{pref}/noise/allNoiseYellowstoneWaveforms.h5'
 # magna_noise_h5_filename = f'{pref}/noise/allNoiseMagnaWaveforms.P.10s.h5'
-noise_h5_filename = f"{pref}/ys_magna_noise_1C.10s.h5"
+noise_h5_filename = f"{pref}/noise/ys_magna_noise_1C.10s.h5"
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021'
 outdir_name = "P_onecomp_resampled_10s"
 

@@ -23,7 +23,7 @@ class SplitData():
                         train_size = 0.7,
                         validation_size = 0.1,
                         test_size = 0.2,
-                        min_training_quality = -1):
+                        min_training_quality = -1, is_stead=False):
       """
       Splits the waveforms event-wise.  This prevents potential target leaking
       by preventing the neural network of gleaning potentially useful source
@@ -68,6 +68,32 @@ class SplitData():
       test_df : pd.dataframe
          Metadata for the test dataset.
       """
+
+      # And the data
+      X = catalog_h5['X'][:,:,:]
+      y = catalog_h5['Y'][:]
+
+      if is_stead:
+          cols = catalog_df_in.columns.to_numpy()
+          cols[cols=="source_id"] = "evid"
+          catalog_df_in.columns = cols
+          print("Input df size", catalog_df_in.shape)
+          # remove any events in UUSS region
+          catalog_df_in = catalog_df_in[~((catalog_df_in['source_latitude'] < 42.5) &
+                    (catalog_df_in['source_latitude'] > 36.75) &
+                    (catalog_df_in['source_longitude'] < -108.75) &
+                    (catalog_df_in['source_longitude'] > -114.25)) &
+                  ~((catalog_df_in['source_latitude'] < 45.167) &
+                    (catalog_df_in['source_latitude'] > 44) &
+                    (catalog_df_in['source_longitude'] < -109.75) &
+                    (catalog_df_in['source_longitude'] > -111.333))]
+          print("New df size", catalog_df_in.shape)
+          # And the data
+          print("Original data shape", X.shape, y.shape)
+          X = catalog_h5['X'][catalog_df_in.index.values, :, :]
+          y = catalog_h5['Y'][catalog_df_in.index.values]
+          print("New data shape", X.shape, y.shape)
+
       assert (train_size + validation_size + test_size - 1) < 1.e-4, 'train, validation test size must sum to 1'
       catalog_df = catalog_df_in.copy(deep = True)
       catalog_df['original_rows'] = np.arange(len(catalog_df))
@@ -98,9 +124,9 @@ class SplitData():
          validation_df = catalog_df.iloc[validation_rows]
       if (len(test_rows) > 0):
          test_df = catalog_df.iloc[test_rows]
-      # And the data
-      X = catalog_h5['X'][:,:,:]
-      y = catalog_h5['Y'][:]
+      # # And the data
+      # X = catalog_h5['X'][:,:,:]
+      # y = catalog_h5['Y'][:]
       if (len(train_rows) > 0):
          train_archive_rows = catalog_df['original_rows'].iloc[train_rows]
          X_train_h5      = np.copy(X[train_archive_rows,:,:])
@@ -207,7 +233,8 @@ class SplitData():
                                  train_size = 0.7,
                                  validation_size = 0.1,
                                  test_size = 0.2,
-                                 min_training_quality = -1):
+                                 min_training_quality = -1,
+                                  is_stead=False):
       """
       Splits the waveforms event-wise.  This prevents potential target leaking
       by preventing the neural network of gleaning potentially useful source
@@ -241,7 +268,7 @@ class SplitData():
       X_test_h5, y_test_h5, test_df \
          = self.split_event_wise(catalog_df, catalog_h5,
                               train_size, validation_size, test_size,
-                              min_training_quality)
+                              min_training_quality, is_stead=is_stead)
       # Write the data
       self.write_data_and_dataframes(output_file_root,
                                  X_train_h5, y_train_h5, train_df,
