@@ -35,7 +35,13 @@ class UNet(BaseModel):
         self.train_epochs = self.config.train.epochs
         self.evaluation_epoch = -1  # Epoch that is being evaluate - -1 if model not trained/loaded
 
-        self.results_out_dir = f"{self.model_out_dir}/results"
+        self.results_out_dir = None #f"{self.model_out_dir}/results"
+
+    def set_results_out_dir(self, test_type):
+        outdir = f"{self.model_out_dir}/{test_type}_results"
+        if (os.path.exists(outdir)):
+            raise ValueError(f"output directory {outdir} already exists.")
+        self.results_out_dir = outdir
 
     @staticmethod
     def read_data(data_file):
@@ -49,12 +55,12 @@ class UNet(BaseModel):
 
     def load_model_state(self, model_in):
         if self.evaluation_epoch > 0:
-            print("Can't load model state after training is complete...")
-            return
+            msg = "Can't load model state after training is complete..."
+            raise ValueError(msg)
 
         if (not os.path.exists(model_in)):
-            print("Model", model_in, " does not exist")
-            return
+            msg = f"Model {model_in} does not exist"
+            raise ValueError(msg)
 
         print(f"Loading model state with {model_in}")
         check_point = torch.load(model_in)
@@ -104,11 +110,13 @@ class UNet(BaseModel):
         trainer.train(train_loader, self.train_epochs, val_loader=validation_loader)
         self.evaluation_epoch = self.train_epochs
 
-    def evaluate(self, test_file, pick_method="single"):
+    def evaluate(self, test_file, test_type, pick_method="single"):
         "Evaluate dataset on the final model"
         if self.evaluation_epoch < 0:
             print("No model state loaded - load or train a model first")
             return
+
+        self.set_results_out_dir(test_type)
 
         #test_loader = self.load_data(test_file, shuffle=False)
         X, Y, T = self.read_data(test_file)
@@ -123,10 +131,13 @@ class UNet(BaseModel):
         evaluator.save_result(resids, f"{self.results_out_dir}/{self.evaluation_epoch}_residuals.csv")
 
     # TODO: Make this a class method?
-    def evaluate_specified_models(self, test_file, epochs, batch_size=None, tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False):
+    # TODO: Add way to evalute the selected pre-trained model first?
+    def evaluate_specified_models(self, test_file, epochs, test_type, batch_size=None, tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False):
         if self.evaluation_epoch >= 0:
             print("Can't do multi-model evaluation with model state loaded")
         
+        self.set_results_out_dir(test_type)
+
         if batch_size is None:
             batch_size = self.batch_size
         single_evaluator = UNetEvaluator(batch_size, self.device, self.center_window, 
