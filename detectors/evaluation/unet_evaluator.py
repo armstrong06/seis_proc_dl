@@ -267,14 +267,14 @@ class UNetEvaluator():
                     if i < len(Y_obs2):
                         index_resid[j:j+2] = resids[:]
                         j = j + 2
-                        resids1[j1] = resids[0]
-                        resids2[j2] = resids[1]
+                        resids1[i] = resids[0]
+                        resids2[i] = resids[1]
                         j1 += 1
                         j2 += 1
                     else:
                         index_resid[j] = resids[0]
                         j = j + 1
-                        resids1[j1] = resids[0]
+                        resids1[i] = resids[0]
                         j1 += 1
                 elif (Y_obs[i] == 0 and np.any(Y_est == 1)):
                     # Keep track of where there were picks in a noise window so we can look at the TN rate

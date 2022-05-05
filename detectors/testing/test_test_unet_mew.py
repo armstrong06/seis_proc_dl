@@ -4,7 +4,7 @@ from detectors.models.unet import UNet
 from test_mew_config import CFG
 
 
-test_file = "/home/armstrong/Research/new/p_detector_mew/uuss_data/validateP.10s.1dup_synthetic_multievent_waveforms.h5"
+test_file = "/home/armstrong/Research/new/p_detector_mew/uuss_data/combined.validate.10s.1dup.h5"
 
 unet = UNet(CFG)
 
@@ -14,5 +14,5 @@ unet = UNet(CFG)
 ########################
 
 # to evaluate multiple models given epochs
-unet.evaluate_specified_models(test_file, [0, 1], mew=True)
+unet.evaluate_specified_models(test_file, [0, 1],"comb_validation", mew=True)
 #############################
