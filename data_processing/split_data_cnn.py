@@ -23,57 +23,65 @@ class SplitData():
                         train_size = 0.7,
                         validation_size = 0.1,
                         test_size = 0.2,
-                        min_training_quality = -1, is_stead=False):
-      """
-      Splits the waveforms event-wise.  This prevents potential target leaking
-      by preventing the neural network of gleaning potentially useful source
-      information from the training set prior to application to the validation
-      and test sets.
+                        min_training_quality = -1, is_stead=False,
+                        filter_h5=True):
+        """
+        Splits the waveforms event-wise.  This prevents potential target leaking
+        by preventing the neural network of gleaning potentially useful source
+        information from the training set prior to application to the validation
+        and test sets.
 
-      Parameters
-      ----------
-      catalog_df : pd.dataframe
+        Parameters
+        ----------
+        catalog_df : pd.dataframe
          Pandas dataframe containing the earthquake catalog metadata.
-      catalog_h5 : h5py.File
+        catalog_h5 : h5py.File
          HDF5 archive with the waveform data.
-      train_size : float
+        train_size : float
          The proportion of data to map to the training set - e.g., 0.7 is 70 pct.
-      validation_size : float
+        validation_size : float
          The proportion of data to map to the validation set which is used to
          determine which epoch to use.
-      train_size : float
+        train_size : float
          The proportion of data to map to the training dataset.
-      min_training_quality : float
+        min_training_quality : float
          Defines the minimum quality to allow into the data and validation sets.
          -1 disables this.
 
-      Returns
-      -------
-      X_train_h5 : np.ndarray
+        Returns
+        -------
+        X_train_h5 : np.ndarray
          The waveform data for the training dataset.
-      y_train_h5 : np.array
+        y_train_h5 : np.array
          The waveform targets for the training.
-      train_df : pd.dataframe
+        train_df : pd.dataframe
          Metadata for the training dataset.
-      X_validation_h5 : np.ndarray
+        X_validation_h5 : np.ndarray
          The waveform data for the validation dataset.
-      y_validation_h5 : np.array
+        y_validation_h5 : np.array
          The waveform targets for the validation dataset.
-      validation_df : pd.dataframe
-         Metadata for the validation dataset. 
-      X_test_h5 : np.ndarray
+        validation_df : pd.dataframe
+         Metadata for the validation dataset.
+        X_test_h5 : np.ndarray
          The waveform data for the test dataset.
-      y_test_h5 : np.array
+        y_test_h5 : np.array
          The waveform targets for the test dataset.
-      test_df : pd.dataframe
+        test_df : pd.dataframe
          Metadata for the test dataset.
-      """
+        """
 
-      # And the data
-      X = catalog_h5['X'][:,:,:]
-      y = catalog_h5['Y'][:]
+        # And the data
+        X = catalog_h5['X'][:,:,:]
+        y = catalog_h5['Y'][:]
+        print("Original data shape", X.shape, y.shape)
+        if filter_h5:
+          X = X[catalog_df_in.index, :, :]
+          y = y[catalog_df_in.index]
+          print("New data shape", X.shape, y.shape)
 
-      if is_stead:
+        assert X.shape[0] == len(catalog_df_in) and y.shape[0] == len(catalog_df_in), "Data shapes do not match"
+
+        if is_stead:
           cols = catalog_df_in.columns.to_numpy()
           cols[cols=="source_id"] = "evid"
           catalog_df_in.columns = cols
@@ -94,75 +102,75 @@ class SplitData():
           y = catalog_h5['Y'][catalog_df_in.index.values]
           print("New data shape", X.shape, y.shape)
 
-      assert (train_size + validation_size + test_size - 1) < 1.e-4, 'train, validation test size must sum to 1'
-      catalog_df = catalog_df_in.copy(deep = True)
-      catalog_df['original_rows'] = np.arange(len(catalog_df))
-      catalog_df['qc_rows'] = np.copy(np.arange(len(catalog_df)))
-      if (min_training_quality > 0):
+        assert (train_size + validation_size + test_size - 1) < 1.e-4, 'train, validation test size must sum to 1'
+        catalog_df = catalog_df_in.copy(deep = True)
+        catalog_df['original_rows'] = np.arange(len(catalog_df))
+        catalog_df['qc_rows'] = np.copy(np.arange(len(catalog_df)))
+        if (min_training_quality > 0):
          catalog_df = catalog_df[catalog_df['pick_quality'] >= min_training_quality]
          catalog_df['qc_rows'] = np.copy(np.arange(len(catalog_df)))
-      events = np.unique(catalog_df['evid'].values)
-      train_events, test_events_work = train_test_split(events, train_size = train_size)
-      validation_size_work =  validation_size/(validation_size + test_size) 
-      validation_events, test_events = train_test_split(test_events_work,
+        events = np.unique(catalog_df['evid'].values)
+        train_events, test_events_work = train_test_split(events, train_size = train_size)
+        validation_size_work =  validation_size/(validation_size + test_size)
+        validation_events, test_events = train_test_split(test_events_work,
                                                          train_size = validation_size_work)
-      assert len(validation_events) + len(test_events) + len(train_events) == len(events), 'failed to decompose sets'
-      print("Number of events:", len(events))
-      print("Number of events in training:", len(train_events))
-      print("Number of events in validation:", len(validation_events))
-      print("Number of events in testing:", len(test_events)) 
-      train_rows      = self.get_matching_event_rows(train_events, catalog_df)
-      validation_rows = self.get_matching_event_rows(validation_events, catalog_df)
-      test_rows       = self.get_matching_event_rows(test_events,  catalog_df) 
-      assert len(train_rows) + len(validation_rows) + len(test_rows) == len(catalog_df), 'failed to find right rows' 
+        assert len(validation_events) + len(test_events) + len(train_events) == len(events), 'failed to decompose sets'
+        print("Number of events:", len(events))
+        print("Number of events in training:", len(train_events))
+        print("Number of events in validation:", len(validation_events))
+        print("Number of events in testing:", len(test_events))
+        train_rows      = self.get_matching_event_rows(train_events, catalog_df)
+        validation_rows = self.get_matching_event_rows(validation_events, catalog_df)
+        test_rows       = self.get_matching_event_rows(test_events,  catalog_df)
+        assert len(train_rows) + len(validation_rows) + len(test_rows) == len(catalog_df), 'failed to find right rows'
 
-      # Extract the rows from the dataframe
-      validation_df = None
-      test_df = None
-      train_df = catalog_df.iloc[train_rows]
-      if (len(validation_rows) > 0):
+        # Extract the rows from the dataframe
+        validation_df = None
+        test_df = None
+        train_df = catalog_df.iloc[train_rows]
+        if (len(validation_rows) > 0):
          validation_df = catalog_df.iloc[validation_rows]
-      if (len(test_rows) > 0):
+        if (len(test_rows) > 0):
          test_df = catalog_df.iloc[test_rows]
-      # # And the data
-      # X = catalog_h5['X'][:,:,:]
-      # y = catalog_h5['Y'][:]
-      if (len(train_rows) > 0):
+        # # And the data
+        # X = catalog_h5['X'][:,:,:]
+        # y = catalog_h5['Y'][:]
+        if (len(train_rows) > 0):
          train_archive_rows = catalog_df['original_rows'].iloc[train_rows]
          X_train_h5      = np.copy(X[train_archive_rows,:,:])
          y_train_h5      = np.copy(y[train_archive_rows])
-      X_validation_h5 = None
-      y_validation_h5 = None
-      if (len(validation_rows) > 0):
+        X_validation_h5 = None
+        y_validation_h5 = None
+        if (len(validation_rows) > 0):
          validation_archive_rows = catalog_df['original_rows'].iloc[validation_rows]
          X_validation_h5 = np.copy(X[validation_archive_rows,:,:])
          y_validation_h5 = np.copy(y[validation_archive_rows])
-      X_test_h5 = None
-      y_test_h5 = None
-      n_split_test_rows = len(test_rows)
-      if (len(test_rows) > 0):
+        X_test_h5 = None
+        y_test_h5 = None
+        n_split_test_rows = len(test_rows)
+        if (len(test_rows) > 0):
          # Don't waste data - want to mine all pick residuals during testing
          test_df = catalog_df_in.copy(deep = True)
          test_df['original_rows'] = np.arange(len(test_df))
          test_df['qc_rows'] = np.copy(np.arange(len(test_df)))
-         test_rows = self.get_matching_event_rows(test_events, test_df)  
+         test_rows = self.get_matching_event_rows(test_events, test_df)
          test_df = test_df.iloc[test_rows]
          X_test_h5 = np.copy(X[test_rows,:,:])
          y_test_h5 = np.copy(y[test_rows])
-      #print(train_df.describe())
-      #print(validation_df.describe())
-      #print(test_df.describe())
-      assert len(train_df) == len(train_rows), 'failed to get training rows'
-      assert len(validation_df) == len(validation_rows), 'failed to get validation rows'
-      assert len(test_df) >= len(test_rows), 'failed to get testing rows'
-      print("Number of events:", len(events))
-      print("Number of training waveforms: %d (%f pct)"%(len(train_df), len(train_df)/len(catalog_df)*100.))
-      print("Number of validation waveforms: %d (%f pct)"%(len(validation_df), len(validation_df)/len(catalog_df)*100.))
-      print("Nominal number of test waveforms: %d (%f pct)"%(n_split_test_rows, n_split_test_rows/len(catalog_df)*100.))
-      print("Actual number of available testing waveforms: %d (%f pct)"%(len(test_df), len(test_df)/len(catalog_df)*100.))
-      return X_train_h5, y_train_h5, train_df, \
+        #print(train_df.describe())
+        #print(validation_df.describe())
+        #print(test_df.describe())
+        assert len(train_df) == len(train_rows), 'failed to get training rows'
+        assert len(validation_df) == len(validation_rows), 'failed to get validation rows'
+        assert len(test_df) >= len(test_rows), 'failed to get testing rows'
+        print("Number of events:", len(events))
+        print("Number of training waveforms: %d (%f pct)"%(len(train_df), len(train_df)/len(catalog_df)*100.))
+        print("Number of validation waveforms: %d (%f pct)"%(len(validation_df), len(validation_df)/len(catalog_df)*100.))
+        print("Nominal number of test waveforms: %d (%f pct)"%(n_split_test_rows, n_split_test_rows/len(catalog_df)*100.))
+        print("Actual number of available testing waveforms: %d (%f pct)"%(len(test_df), len(test_df)/len(catalog_df)*100.))
+        return X_train_h5, y_train_h5, train_df, \
             X_validation_h5, y_validation_h5, validation_df, \
-            X_test_h5, y_test_h5, test_df 
+            X_test_h5, y_test_h5, test_df
 
    @staticmethod
    def write_data_and_dataframes(output_file_root,
