@@ -20,21 +20,21 @@ if __name__ == "__main__":
     n_samples_stead = 6000
     # Make a larger window than we'd use in practice so we can randomly sample
     # from it
-    secs_before_pick = -7.9 # Seconds before arrival
+    secs_before_pick = -10.0 # Seconds before arrival
     secs_after_pick  =  10.0 # Seconds after arrival
     dt = 0.01
     # ch1 is a noise directory
     stead_subdirs = ['ch2', 'ch3', 'ch4', 'ch5', 'ch6']
-    phase = "P"
+    phase = "S"
     # Data processing used by Cxx implementation
     process = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
 
-    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector3C'
-    uuss_meta_df = pd.read_csv(f'{pref}/current_earthquake_catalog_3C.csv')
+    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021'
+    uuss_meta_df = pd.read_csv(f'{pref}/S_current_earthquake_catalog.csv')
     uuss_meta_df["comb_code"] = uuss_meta_df["network"] + uuss_meta_df["station"]
 
     ########################################
-    window_length_samples = int((secs_after_pick - secs_before_pick)/dt) + 1
+    window_length_samples = int((secs_after_pick - secs_before_pick)/dt) #+ 1
     min_pick_sample = int(-secs_before_pick/dt)
     max_pick_sample = n_samples_stead - int(secs_after_pick/dt) - 1
 

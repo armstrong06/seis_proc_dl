@@ -87,6 +87,9 @@ class SplitDetectorData():
         if self.pick_sample is None:
             self.pick_sample = int(X.shape[1]/2)
 
+        if len(X.shape) == 2:
+            X = np.expand_dims(X, axis=2)
+
         if min_training_quality > 0:
             print("Doing quality control")
             print(X.shape, Y.shape, meta_df.shape)
@@ -102,6 +105,9 @@ class SplitDetectorData():
         """Read in the noise data"""
         n_samples_in_window = self.__compute_pad_length()
         X, Y, meta_df = self.__load_waveform_data(h5_phase_file, meta_csv_file, n_samples_in_window)
+        if len(X.shape) == 2:
+            X = np.expand_dims(X, axis=2)
+
         self.noise_train = (X, Y)
         self.noise_train_meta = meta_df
 

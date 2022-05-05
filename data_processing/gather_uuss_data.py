@@ -19,8 +19,8 @@ class OneComponentGatherer(BaseGatherDataUUSS):
         signal = np.copy(waveforms.signal)
         if (len(signal) == 0):
             return None
-        processed_signal = self.proc.process_waveform(signal, 1./waveforms.sampling_rate)
-        target_dt = self.proc.target_sampling_period
+        processed_signal = self.processing_function.process_waveform(signal, 1./waveforms.sampling_rate)
+        target_dt = self.processing_function.target_sampling_period
         t0 = waveforms.start_time
         n_samples = len(signal)
         # Extract signal
@@ -59,7 +59,7 @@ class OneComponentGatherer(BaseGatherDataUUSS):
         catalog_df.sort_values(['evid', 'arrival_time'], inplace=True)
         return catalog_df 
         
-    def make_archive(self, catalog_df, output_file_root):
+    def make_archive(self, catalog_df, output_file_root, halfwindow_length=3):
         """ Overrides method from BaseGatherData."""
         evids = catalog_df['evid'].values
         stations = catalog_df['station'].values
@@ -83,7 +83,8 @@ class OneComponentGatherer(BaseGatherDataUUSS):
                                                         networks[i], stations[i],
                                                         channels[i], locations[i])
                 waveform.remove_trailing_zeros() # Clean up any junk at end of waveform
-                waveform = self.process_data(waveform, arrival_times[i]) 
+                waveform = self.process_data(waveform, arrival_times[i], trace_cut_start=-halfwindow_length,
+                                             trace_cut_end=halfwindow_length)
                 if (waveform is None):
                     print("Insufficient data to process waveform: "
                         + networks[i] + "." + stations[i] + "." + channels[i] + "."
@@ -129,8 +130,8 @@ class OneComponentGatherer(BaseGatherDataUUSS):
         combined_catalog_df: Pandas DataFrame
             DataFrame of the combined waveform metadata for the csv files - sorted by arrival time       
         """
-        catalog_3c_df = self.create_combined_catalogs(catalog_3c_filename)
-        catalog_1c_df = self.create_combined_catalogs(catalog_1c_filename)
+        catalog_3c_df = self.create_waveform_df(catalog_3c_filename)
+        catalog_1c_df = self.create_waveform_df(catalog_1c_filename)
         combined_catalog_df = pd.concat([catalog_3c_df, catalog_1c_df])
         combined_catalog_df.sort_values(['evid', 'arrival_time'], inplace=True)
         print("Length of combined catalog:", len(combined_catalog_df))
@@ -162,7 +163,8 @@ class OneComponentGatherer(BaseGatherDataUUSS):
 
 
     # TODO: Could figure out a better way to separate the functionality for FM and 1C picker
-    def process_and_save_waveforms(self, catalog_3c_filename, catalog_1c_filename, output_file_root, event_type, is_first_motion_data=False, drop_down=False):
+    def process_and_save_waveforms(self, catalog_3c_filename, catalog_1c_filename, output_file_root,
+                                   event_type, is_first_motion_data=False, drop_down=False, halfwindow_length=3):
         """
         Write archived time-series and metadata to disk for specified waveforms
 
@@ -181,7 +183,7 @@ class OneComponentGatherer(BaseGatherDataUUSS):
         if is_first_motion_data:
             combined_catalog_df = self.additional_fm_filtering(combined_catalog_df, drop_down=drop_down)
         combined_catalog_df['event_type'] = event_type
-        self.make_archive(combined_catalog_df, output_file_root)
+        self.make_archive(combined_catalog_df, output_file_root, halfwindow_length=halfwindow_length)
 
     # def close(self):
     #     """ Close the archive manager used to access the archived time-series data"""
