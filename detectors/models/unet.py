@@ -40,7 +40,9 @@ class UNet(BaseModel):
     def set_results_out_dir(self, test_type):
         outdir = f"{self.model_out_dir}/{test_type}_results"
         if (os.path.exists(outdir)):
-            raise ValueError(f"output directory {outdir} already exists.")
+            print(f"output directory {outdir} already exists.")
+            outdir = f"{self.model_out_dir}/{test_type}_results1"
+
         self.results_out_dir = outdir
 
     @staticmethod
