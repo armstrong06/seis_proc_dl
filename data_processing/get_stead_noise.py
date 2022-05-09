@@ -17,25 +17,39 @@ import os
 if __name__ == "__main__":
     
     stead_root_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/stead/'
-    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/STEAD_P'
+    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead_pickers'
     # ch1 is noise
     stead_subdirs = ['ch1']
 
     max_distance = 150 # Probably everything over ~80 will be critically refracted
     n_samples_stead = 6000
     # Make a larger window than we'd use in practice so we can randomly sample from it
-    waveform_length = 15 #seconds
+    waveform_length = 8 #seconds
     dt = 0.01
+    is_detector = False
 
     # Data processing used by Cxx implementation
-    process = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+    if is_detector:
+        process = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+    else:
+        process = uuss.ThreeComponentPicker.ZCNN.ProcessData()
 
-    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector3C'
-    uuss_meta_df = pd.read_csv(f'{pref}/current_earthquake_catalog_3C.csv')
+    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector'
+    uuss_meta_df = pd.read_csv(f'{pref}/P_current_earthquake_catalog.csv')
     uuss_meta_df.comb_code = uuss_meta_df["network"] + uuss_meta_df["station"]
 
+    print("Stead root dir:", stead_root_dir)
+    print("Outdir:", outfile_dir)
+    print("Max distance:", max_distance)
+    print("n_samples_stead:", n_samples_stead)
+    print("Waveform length:", waveform_length)
+    print("dt:", dt)
+    print("Stead chunks:", stead_subdirs)
+    print("Is detector?:", is_detector)
+    print(process)
+
     ##########################################
-    waveform_length_samples = waveform_length/dt + 1
+    waveform_length_samples = waveform_length/dt #+ 1
     segments_per_trace = int(n_samples_stead//waveform_length_samples) # split the noise window into multiple waveforms
 
     df_all = None
@@ -58,6 +72,15 @@ if __name__ == "__main__":
 
         df_non_uu = df[(df.trace_category == 'noise') &
                        (np.isin(df.comb_code, uuss_meta_df.comb_code.unique(), invert=True))]
+
+        df_non_uu = df_non_uu[~((df_non_uu['source_latitude'] < 42.5) &
+              (df_non_uu['source_latitude'] > 36.75) &
+              (df_non_uu['source_longitude'] < -108.75) &
+              (df_non_uu['source_longitude'] > -114.25)) &
+              ~((df_non_uu['source_latitude'] < 45.167) &
+              (df_non_uu['source_latitude'] > 44) &
+              (df_non_uu['source_longitude'] < -109.75) &
+              (df_non_uu['source_longitude'] > -111.333))]
 
         print("Getting data from:", h5_file)
         trace_names = df_non_uu['trace_name'].values
@@ -120,5 +143,5 @@ if __name__ == "__main__":
                     'back_azimuth_deg','trace_start_time','trace_category','trace_name']
     df_all = df_all[columns_keep]
     print("Fraction of all waveforms with Noise?:", df_all.shape[0]/float(n_rows))
-    df_all.to_csv(f'{outfile_dir}/SteadNoise.csv', index=False)
+    df_all.to_csv(f'{outfile_dir}/SteadNoise_{waveform_length_samples}.csv', index=False)
     ofl.close()

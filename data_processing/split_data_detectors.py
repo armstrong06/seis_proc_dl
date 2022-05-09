@@ -8,13 +8,14 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from utils.file_manager import Write
+# TODO: Update method for setting random state
 np.random.seed(49230)
 
 class SplitDetectorData():
     # TODO: I do not know that this is the best way to implement this class
 
     def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref=None, target_shrinkage=None,
-                 pick_sample=None, normalize_seperate=True, reorder_waveforms=False):
+                 pick_sample=None, normalize_seperate=True): #, reorder_waveforms=False):
         self.window_duration = window_duration
         self.dt = dt
         self.max_pick_shift = max_pick_shift
@@ -23,7 +24,7 @@ class SplitDetectorData():
         self.target_shrinkage = target_shrinkage # make it so that we classifiy at this fraction of central points in the window
         self.pick_sample = pick_sample
         self.normalize_seperate = normalize_seperate
-        self.reorder = reorder_waveforms # Switch the first and last channels of data - Want ENZ
+        #self.reorder = reorder_waveforms # Switch the first and last channels of data - Want ENZ
 
         if self.outfile_pref is not None:
             self.__make_directory()
@@ -278,10 +279,11 @@ class SplitDetectorData():
             Y = np.asarray(h5_file['Y'])
             h5_file.close()
 
-        if self.reorder:
-            tmp = X[:, :, 0].copy()
-            X[:, :, 0] = X[:, :, 2]
-            X[:, :, 2] = tmp
+        # if self.reorder:
+        #     print("Reordering waveform channels 0,1,2 -> 2,1,0")
+        #     tmp = X[:, :, 0].copy()
+        #     X[:, :, 0] = X[:, :, 2]
+        #     X[:, :, 2] = tmp
 
         if meta_csv_file is None:
             meta_df = None
@@ -365,7 +367,7 @@ class SplitDetectorData():
         for idup in range(n_duplicate):
             for iobs in range(n_obs):
                 # I added this condition
-                if n_samples == 1008:
+                if n_samples == n_samples_in_window:
                     start_index = 0
                 else:
                     start_index = start_sample + lags[idup*n_obs+iobs]
@@ -391,7 +393,7 @@ class SplitDetectorData():
                     if X_normalizer[norm_ind] != 0:
                         X_temp[:, norm_ind] = X_temp[:,norm_ind]/X_normalizer[norm_ind]
                     else:
-                        X_temp[:, norm_ind] = X_temp[:,norm_ind]
+                        X_temp[:, norm_ind] = np.zeros_like(X_temp[:, norm_ind]) #X_temp[:,norm_ind]
 
                 # X_temp = X_temp/X_normalizer
 
@@ -464,6 +466,8 @@ class SplitDetectorData():
     def __reduce_stead_noise_dataset(self, X_noise, Y_noise, noise_meta_df):
         print("Filtering STEAD noise rows...")
         print("Original noise shape:", X_noise.shape)
+        # get every 3rd waveform from the Stead dataset
+        # (3 waveforms/stead trace when splitting them into 20 seconds)
         noise_rows = np.arange(0, len(X_noise), 3)
 
         if len(noise_rows) < self.n_signal_waveforms:

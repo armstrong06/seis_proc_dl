@@ -8,18 +8,28 @@ import os
 
 archive_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/archives/'
 catalog_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/data/'
-output_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021'
+output_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker'
 phase_type = "S"
-waveform_halfwidth = 10
+waveform_halfwidth = 8
+is_detector = False
 
-processing_function = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+if is_detector:
+    processing_function = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+else:
+    processing_function = uuss.ThreeComponentPicker.ZCNN.ProcessData()
+
+print(output_dir)
+print("Phase type", phase_type)
+print("Waveform halfwidth", waveform_halfwidth)
+print("Detector?:", is_detector)
+print(processing_function)
 
 # Initialize 
-gatherer = ThreeComponentGatherer(archive_dir, processing_function)
+gatherer = ThreeComponentGatherer(archive_dir, processing_function, is_detector)
 
-infilename_roots = [] #['currentEarthquakeArrivalInformation','historicalEarthquakeArrivalInformation']
-outfilename_roots = [] #['current_earthquake_catalog', 'historical_earthquake_catalog']
-event_types = []# ["le", "le"]
+infilename_roots = ['currentEarthquakeArrivalInformation','historicalEarthquakeArrivalInformation']
+outfilename_roots = ['current_earthquake_catalog', 'historical_earthquake_catalog']
+event_types =  ["le", "le"]
 
 infilename_roots.append('currentBlastArrivalInformation')
 outfilename_roots.append('current_blast_catalog')

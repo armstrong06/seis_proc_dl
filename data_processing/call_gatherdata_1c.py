@@ -10,7 +10,7 @@ output_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/da
 is_first_motion_data = False
 waveform_halfwidth = 10
 
-processing_function = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+processing_function = uuss.OneComponentPicker.ZCNN.ProcessData()
 #processing_function = uuss.OneComponentPicker.ZCNN.ProcessData()
 if is_first_motion_data:
     processing_function = uuss.FirstMotion.FMNet.ProcessData()
