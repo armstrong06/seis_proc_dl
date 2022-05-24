@@ -262,8 +262,11 @@ def write_h5file(X, Y, T, outfile_pref):
 
 def plot_combied_waveforms(Xdata, Y, Tdata, metadata, figdir):
     # 0 - E/2, 1-N/1
+    n_channels = Xdata[0].shape[1]
     comp_names = {0: "E", 1:"N", 2:"Z"}
-    for i in range(3):
+    if n_channels == 1:
+        comp_names = {0:"Z"}
+    for i in range(n_channels):
         fig, axes = plt.subplots(4, figsize=(6, 7))
         plt.suptitle(
             "%s - %s channel - %s (%s %s), %s(%s %s)" % (
@@ -511,12 +514,15 @@ def combine_waveforms(pairs_df, waveform_tuple, outfile_pref, min_sep=300, end_b
     pd.DataFrame(comb_df[1:], columns=comb_df[0]).to_csv("%s_synthetic_multievent_summary_info.df.csv"%outfile_pref, index=False)
 
 if __name__ == "__main__":
-    pref_entire_cat = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021"
-    duplicate_pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/data"
-    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021/p_resampled_10s"
+    pref_entire_cat = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector"
+    duplicate_pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/old_data/data"
+    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector/onecomp_p_resampled_10s"
     outpref = "%s/synthetic_multievent_waveforms"%pref
-    outfile_pref = "%s/trainP.10s.1dup"%outpref
-    figdir = "%s/train_figs"%outpref
+
+    split_type = "train"
+
+    outfile_pref = f"%s/{split_type}P.10s.1dup"%outpref
+    figdir = f"%s/{split_type}_figs"%outpref
 
     if not os.path.exists(outpref):
         os.makedirs(outpref)
@@ -525,13 +531,13 @@ if __name__ == "__main__":
         os.makedirs(figdir)
 
     # Read in entire 3C catalog
-    entire_cat_df = pd.read_csv("%s/P_current_earthquake_catalog.csv"%pref_entire_cat)
+    entire_cat_df = pd.read_csv("%s/current_earthquake_catalog_1c.csv"%pref_entire_cat)
     entire_cat_df = entire_cat_df[entire_cat_df["phase"] == "P"]
 
     # Read in dataset for plotting
-    df = pd.read_csv("%s/currenteq.train.10s.1dup.csv"%pref, dtype={'location'  : object})
+    df = pd.read_csv(f"%s/currenteq.{split_type}.10s.1dup.csv"%pref, dtype={'location'  : object})
     df = df[df.phase == "P"]
-    waveform_tuple = read_h5file("%s/currenteq.train.10s.1dup.h5"%pref)
+    waveform_tuple = read_h5file(f"%s/currenteq.{split_type}.10s.1dup.h5"%pref)
 
     # Read in potential duplicate evids
     duplicates_df = pd.read_csv("%s/possibleDuplicates_currentEarthquakeArrivalInformation3C.csv"%duplicate_pref, dtype={'location'  : object})
@@ -546,27 +552,28 @@ if __name__ == "__main__":
     assert np.all(np.isin(df_clean.evid, duplicates_df.evid, invert=True)), "Duplicate events still here"
 
     ################ Training ################
-    plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
-                              figdir="%s/filtered_training_dist.jpg"%figdir)
+    if split_type == "train":
+        plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
+                                  figdir="%s/filtered_training_dist.jpg"%figdir)
 
-    plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-                                figdir="%s/3C_catalog_dist.jpg"%figdir)
-    df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=40000, z_indicator="channelz")
-    plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
-                                figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
-    # combine the waveforms
-    combine_waveforms(df_pairs, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
-
-    ################ Validation ################
-    # # Only use this for validation/test data because much smaller size
-    # df_match_dist = match_sampling_distributions(entire_cat_df, df_clean, 15000, "Magnitude distribution of different data sets")
-    # #Plot distributions and make dataframe of events to combine
-    # plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
-    # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
-    #                             figdir="%s/filtered_validation_dist.jpg"%figdir)
-    # plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
-    #                             filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
-    # plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-    #                             figdir="%s/3C_catalog_dist.jpg"%figdir)
-    # #combine the waveforms
-    # combine_waveforms(df_match_dist, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
+        plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+                                    figdir="%s/3C_catalog_dist.jpg"%figdir)
+        df_pairs, sampled_dist = generate_sampling_distribution(df_clean, n_waveforms=40000, z_indicator="channelz")
+        plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
+                                    figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
+        # combine the waveforms
+        combine_waveforms(df_pairs, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
+    elif split_type == "validate":
+        ################ Validation ################
+        # Only use this for validation/test data because much smaller size
+        df_match_dist = match_sampling_distributions(entire_cat_df, df_clean, 15000, "Magnitude distribution of different data sets")
+        #Plot distributions and make dataframe of events to combine
+        plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
+        plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
+                                    figdir="%s/filtered_validation_dist.jpg"%figdir)
+        plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
+                                    filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
+        plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+                                    figdir="%s/3C_catalog_dist.jpg"%figdir)
+        #combine the waveforms
+        combine_waveforms(df_match_dist, waveform_tuple, outfile_pref, to_plot=True, figdir=figdir)
