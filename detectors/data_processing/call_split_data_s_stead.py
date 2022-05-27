@@ -1,5 +1,5 @@
 import sys
-sys.path.append("..")
+sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl/")
 from data_processing.split_data_detectors import SplitDetectorData
 
 window_duration = 10.0
@@ -12,16 +12,15 @@ max_pick_shift = 250
 pick_sample = None
 
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive'
-h5_filename = f'{pref}/sDetector/sSteadDataset.h5'
-meta_file = f'{pref}/sDetector/sSteadMetadata.csv'
-noise_h5_filename = f'{pref}/stead/noiseStead_2000.h5'
-noise_meta_file = f'{pref}/stead/noiseStead_2000.csv'
+h5_filename = f'{pref}/stead_detectors/SStead_2000.h5'
+meta_file = f'{pref}/stead_detectors/SStead_2000.csv'
+noise_h5_filename = f'{pref}/stead_detectors/noiseStead_2000.h5'
+noise_meta_file = f'{pref}/stead_detectors/noiseStead_2000.csv'
 
-outpref = f"{pref}/sDetector/s_resampled_10s_normalized/S."
+outpref = f"{pref}/stead_detectors/s_resampled_{int(window_duration)}s/S."
 
 # Initialize
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, outpref, pick_sample=pick_sample,
-                            reorder_waveforms=True)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, outpref, pick_sample=pick_sample)
 # Handle the signal
 spliter.load_signal_data(h5_filename, meta_file)
 spliter.split_signal(train_frac, test_frac, extract_events_params=None)

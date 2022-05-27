@@ -190,9 +190,12 @@ class OneComponentGatherer(BaseGatherDataUUSS):
     #     self.archive_manager.close()
 
 class ThreeComponentGatherer(BaseGatherDataUUSS):
-    def __init__(self, archive_dir, processing_function):
+    """"
+    Gathers UUSS data - waveforms are ordered ENZ
+    """
+    def __init__(self, archive_dir, processing_function, is_detector):
         super().__init__(archive_dir, processing_function)
-        # TODO: I think all 3C will use the same processing functions - fix implementation 
+        self.is_detector = is_detector
 
     def process_data(self, waveforms, pick_time, trace_cut_start = -3, trace_cut_end = 3):
         """ 
@@ -227,10 +230,13 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         # I don't know what's going on.  I think there's an issue with
         # non-contiguous memory but that's pure conjecture. - BB
         dt = 1. / waveforms[0].sampling_rate
-        processed_signal_Z = self.processing_function.process_waveform(signalZ, dt)
-        processed_signal_N = self.processing_function.process_waveform(signalN, dt)
-        processed_signal_E = self.processing_function.process_waveform(signalE, dt)
-
+        if self.is_detector:
+            processed_signal_Z = self.processing_function.process_waveform(signalZ, dt)
+            processed_signal_N = self.processing_function.process_waveform(signalN, dt)
+            processed_signal_E = self.processing_function.process_waveform(signalE, dt)
+        else:
+            [processed_signal_Z, processed_signal_N, processed_signal_E] = \
+                self.processing_function.process_three_component_waveform(signalZ, signalN, signalE, dt)
         # processed_signal_Z, processed_signal_N, processed_signal_E = self.processing_function.process_three_component_waveform(signalZ, signalN, signalE, 1./waveforms[0].sampling_rate)
 
         target_dt = self.processing_function.target_sampling_period

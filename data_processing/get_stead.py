@@ -15,24 +15,40 @@ import os
 if __name__ == "__main__":
     
     stead_root_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/stead/'
-    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead'
+    outfile_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead_pickers'
     max_distance = 150 # Probably everything over ~80 will be critically refracted
     n_samples_stead = 6000
     # Make a larger window than we'd use in practice so we can randomly sample
     # from it
-    secs_before_pick = -10.0 # Seconds before arrival
-    secs_after_pick  =  10.0 # Seconds after arrival
+    secs_before_pick = -4.0 # Seconds before arrival
+    secs_after_pick  =  4.0 # Seconds after arrival
     dt = 0.01
     # ch1 is a noise directory
     stead_subdirs = ['ch2', 'ch3', 'ch4', 'ch5', 'ch6']
     phase = "S"
-    # Data processing used by Cxx implementation
-    process = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+    is_detector = False
 
-    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021'
+    # Data processing used by Cxx implementation
+    if is_detector:
+        process = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
+    else:
+        process = uuss.ThreeComponentPicker.ZCNN.ProcessData()
+
+    pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector'
     uuss_meta_df = pd.read_csv(f'{pref}/S_current_earthquake_catalog.csv')
     uuss_meta_df["comb_code"] = uuss_meta_df["network"] + uuss_meta_df["station"]
 
+    print("Stead root dir:", stead_root_dir)
+    print("Outdir:", outfile_dir)
+    print("Max distance:", max_distance)
+    print("n_samples_stead:", n_samples_stead)
+    print("Seconds before arrival:", secs_before_pick)
+    print("Seconds after arrival:", secs_after_pick)
+    print("dt:", dt)
+    print("Stead chunks:", stead_subdirs)
+    print("Phase:", phase)
+    print("Is detector?:", is_detector)
+    print(process)
     ########################################
     window_length_samples = int((secs_after_pick - secs_before_pick)/dt) #+ 1
     min_pick_sample = int(-secs_before_pick/dt)
@@ -73,6 +89,17 @@ if __name__ == "__main__":
                        (np.isin(df.comb_code, uuss_meta_df.comb_code.unique(), invert=True)) &
                        (df.source_magnitude_author != "UU")]
 
+        # There are a few stations not in the UU catalog that have data from UU events
+        df_non_uu = df_non_uu[
+             ~((df_non_uu['source_latitude'] < 42.5) &
+              (df_non_uu['source_latitude'] > 36.75) &
+              (df_non_uu['source_longitude'] < -108.75) &
+              (df_non_uu['source_longitude'] > -114.25)) &
+              ~((df_non_uu['source_latitude'] < 45.167) &
+              (df_non_uu['source_latitude'] > 44) &
+              (df_non_uu['source_longitude'] < -109.75) &
+              (df_non_uu['source_longitude'] > -111.333)) ]
+
         # ((np.isin(stead_meta_df["network_code"], uuss_meta_df["network"].unique())) &
         #                           (np.isin(stead_meta_df["receiver_code"], uuss_meta_df["station"].unique()))) |
         #                           (np.isin(stead_meta_df["network_code"],["UU", "WY"]))
@@ -94,9 +121,9 @@ if __name__ == "__main__":
             z = s_signal[:,2]
             [zproc, nproc, eproc] = process.process_three_component_waveform(z, n, e, dt)
             # Order ENZ
-            chunk[0, :, 2] = zproc[:]
-            chunk[0, :, 1] = nproc[:]
             chunk[0, :, 0] = eproc[:]
+            chunk[0, :, 1] = nproc[:]
+            chunk[0, :, 2] = zproc[:]
 
             # check if there are any nan values
             if len(np.where(np.isnan(chunk))[0]) > 0:

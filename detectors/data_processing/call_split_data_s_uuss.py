@@ -14,10 +14,10 @@ test_frac = 0.5
 max_pick_shift = 250
 
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive'
-ys_noise_h5_filename = f'{pref}/noise/allNoiseYellowstoneWaveforms.h5'
-magna_noise_h5_filename = f'{pref}/noise/allNoiseMagnaWaveforms.P.10s.h5'
+ys_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseYellowstoneWaveformsPermuted.h5'
+magna_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseMagnaWaveformsPermuted.P.10s.h5'
 
-pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021'
+pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector'
 
 # For NGB events - Don't need these for STEAD data
 # Remove events within these bounds
@@ -62,6 +62,16 @@ ceq_train_df, ceq_test_df, ceq_validate_df = spliter.return_signal_meta()
 ceq_train_noise, ceq_test_noise, ceq_validate_noise = spliter.return_noise()
 ceq_train_noise_df, ceq_test_noise_df, ceq_validate_noise_df = spliter.return_noise_meta()
 
+# Blast catalog
+h5_filename = f'{pref}/S_current_blast_catalog_3c.h5'
+meta_file = f'{pref}/S_current_blast_catalog_3c.csv'
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1)
+spliter.load_signal_data(h5_filename, meta_file, min_training_quality=0.5)
+spliter.split_signal(0.4, 0.96, extract_events_params=None)
+spliter.process_signal(boxcar_widths={0: 31, 1: 51, 2: 71})
+cbl_train,cbl_test,cbl_validate = spliter.return_signal()
+cbl_train_df, cbl_test_df, cbl_validate_df = spliter.return_signal_meta()
+
 # Historical Earthquakes
 h5_filename = f'{pref}/S_historical_earthquake_catalog.h5'
 meta_file = f'{pref}/S_historical_earthquake_catalog.csv'
@@ -73,11 +83,11 @@ spliter.process_signal(boxcar_widths={0: 31, 1: 51, 2: 71})
 heq_train,heq_test,heq_validate = spliter.return_signal()
 heq_train_df, heq_test_df, heq_validate_df = spliter.return_signal_meta()
 
-def concate_splits(ceq_split, ceq_split_df, heq_split, heq_split_df, noise_split=None, noise_split_df=None):
-    X = np.concatenate([ceq_split[0], heq_split[0]])
-    y = np.concatenate([ceq_split[1], heq_split[1]])
-    T = np.concatenate([ceq_split[2], heq_split[2]])
-    df = pd.concat([ceq_split_df, heq_split_df])
+def concate_splits(ceq_split, ceq_split_df, cbl_split, cbl_split_df, heq_split, heq_split_df, noise_split=None, noise_split_df=None):
+    X = np.concatenate([ceq_split[0], cbl_split[0], heq_split[0]])
+    y = np.concatenate([ceq_split[1], cbl_split[1], heq_split[1]])
+    T = np.concatenate([ceq_split[2], cbl_split[2], heq_split[2]])
+    df = pd.concat([ceq_split_df, cbl_split_df, heq_split_df])
     if noise_split is not None:
         X = np.concatenate([X, noise_split[0]])
         y = np.concatenate([y, noise_split[1]])
@@ -87,11 +97,14 @@ def concate_splits(ceq_split, ceq_split_df, heq_split, heq_split_df, noise_split
 
     return [X, y, T], df
 
-train_data, train_df = concate_splits(ceq_train, ceq_train_df,heq_train, heq_train_df, ceq_train_noise)
+train_data, train_df = concate_splits(ceq_train, ceq_train_df, cbl_train, cbl_train_df,
+                                            heq_train, heq_train_df, ceq_train_noise)
 
-test_data, test_df = concate_splits(ceq_test, ceq_test_df,heq_test, heq_test_df, ceq_test_noise)
+test_data, test_df = concate_splits(ceq_test, ceq_test_df, cbl_test, cbl_test_df,
+                                            heq_test, heq_test_df, ceq_test_noise)
 
-validate_data, validate_df = concate_splits(ceq_validate, ceq_validate_df, heq_validate, heq_validate_df, ceq_validate_noise)
+validate_data, validate_df = concate_splits(ceq_validate, ceq_validate_df, cbl_validate, cbl_validate_df,
+                                            heq_validate, heq_validate_df, ceq_validate_noise)
 
 Write.h5py_file(["X", "Y", "Pick_index"], train_data, spliter.make_filename("train", "h5"))
 Write.h5py_file(["X", "Y", "Pick_index"], test_data, spliter.make_filename("test", "h5"))
