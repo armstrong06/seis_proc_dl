@@ -246,6 +246,7 @@ class UNetEvaluator():
             j2 = 0
 
             est_picks_cnt = 0
+            est_picks_cnt_p2 = 0
             for i in range(len(T_test)):               
                 Y_est = (Y_proba[i] > tol) *1             
 
@@ -253,6 +254,10 @@ class UNetEvaluator():
                 est_picks = T_est_index[i][np.where(Y_proba[i] > tol)[0]]
                 est_picks_cnt += len(est_picks)
 
+                # Keep track of how many picks total picks for MEW waveforms
+                if i == len(Y_obs2):
+                    est_picks_cnt_p2 = est_picks_cnt
+                
                 # TODO: check if this should be < or <=
                 if i < len(Y_obs2):
                     actual_picks = [T_test[i], T_test2[i]]
@@ -291,9 +296,12 @@ class UNetEvaluator():
             Y_est1 = (~np.isnan(resids1)) * 1
             Y_est2 = (~np.isnan(resids2)) * 1
             # (takes into account picks that are made but not in the right locations?)
-            fp = est_picks_cnt - sum(Y_est1) - sum(Y_est2)  # number of picks made - number of picks assigned to p1 or p2 
+            fp_all = est_picks_cnt - sum(Y_est1) - sum(Y_est2)  # number of picks made - number of picks assigned to p1 or p2 
             #fp = est_picks_cnt - n_picks1 - n_picks2 # number of picks made - number of known picks 
-            assert fp >= 0, "FP is negative"
+            assert fp_all >= 0, "FP is negative"
+
+            # Calcualte the FP for MEW wabeforms. Total number of picks for MEW - P2 picks - P1 picks on MEW waveforms
+            fp_p2 = est_picks_cnt_p2 - sum(Y_est2) - sum(~np.isnan(resids1[:len(Y_obs2)])*1)
 
             # Since FP is being calculated seperately, all noise observations are being assigned noise by default, even if the model made a pick.
             # Change estimated noise classification to 1 in there were any proba over threshold, so we can get an accurate estimate of TN 
@@ -330,13 +338,13 @@ class UNetEvaluator():
                 return dic
 
             # Results for individual picks 
-            dict_p1 = calc_stats(Y_obs, Y_est1, n_picks1, resids1, fp)
-            dict_p2 = calc_stats(Y_obs2, Y_est2, n_picks2, resids2, fp)
+            dict_p1 = calc_stats(Y_obs, Y_est1, n_picks1, resids1, fp_all)
+            dict_p2 = calc_stats(Y_obs2, Y_est2, n_picks2, resids2, fp_p2)
             # Results when having all the picks for a waveform counts as a success 
             tmp = np.full(len(Y_est1), 1)
             tmp[0:len(Y_est2)] = Y_est2
             combined_Yest = Y_est1 * tmp
-            dict_comb = calc_stats(Y_obs, combined_Yest, n_picks1+n_picks2, index_resid, fp)
+            dict_comb = calc_stats(Y_obs, combined_Yest, n_picks1+n_picks2, index_resid, fp_all)
 
             results_p1.append(dict_p1)
             results_p2.append(dict_p2)
