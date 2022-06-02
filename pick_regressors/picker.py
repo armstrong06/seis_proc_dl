@@ -2,6 +2,7 @@ import torch
 from torch.nn import MaxPool1d, Conv1d, Linear
 import h5py
 import numpy as np
+import pandas as pd
 import os
 from torch.utils.data.sampler import SubsetRandomSampler
 import sys
@@ -10,6 +11,7 @@ from model.base_model import BaseModel
 from utils.model_helpers import NumpyDataset
 from process_picker_data import randomize_start_times_and_normalize
 from picker_trainer import PickerTrainer
+from picker_evaluator import PickerEvaluator
 
 class Picker(BaseModel):
     def __init__(self, config):
@@ -111,8 +113,26 @@ class Picker(BaseModel):
         trainer.train(train_loader, validation_loader, self.train_epochs)
         self.evaluation_epoch = self.train_epochs
 
-    def evaluate(self):
-        pass
+    def evaluate(self, test_h5, test_csv, epochs, test_type, batch_size=None, shift_pred=False):
+        X = self.read_data(test_h5)
+        df = pd.read_csv(test_csv)
+        X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
+                                                               max_dt=self.max_dt, dt=self.dt, n_duplicate=1,
+                                                               radom_seed=self.random_seed)
+        "Evaluate dataset on the final model"
+        if self.evaluation_epoch < 0:
+            print("No model state loaded - load or train a model first")
+            return
+
+        self.set_results_out_dir(test_type)
+
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        evaluator = PickerEvaluator(self.model, self.device, self.time_series_len, 
+                                    self.dt, batch_size, self.results_out_dir)
+
+        evaluator.apply_model(df, X, Y, epochs, test_type, do_shift=shift_pred)
 
 class CNNNet(torch.nn.Module):
     def __init__(self, num_channels=3, min_lag=-0.75, max_lag=0.75):

@@ -153,7 +153,7 @@ class UNetEvaluator():
                         tols = [0.1, 0.25, 0.5, 0.75, 0.9]):
         results = []
 
-        # Only look at signal, not noise
+        # Make a binary array of the picks (1=singal, 0=noise)
         Y_obs = (true_pick_index >= 0)*1
         n_picks = np.sum(Y_obs)
 

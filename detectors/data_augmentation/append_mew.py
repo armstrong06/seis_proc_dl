@@ -1,8 +1,8 @@
 import h5py
 import numpy as np
 
-pref = "/home/armstrong/Research/newer/p_detector_mew/uuss_data"
-split_type = "train"
+pref = "/home/armstrong/Research/newer/onecomp_p_detector_mew/uuss_data"
+split_type = "validate"
 
 org_file = f"{pref}/combined.{split_type}.10s.1dup.h5"
 mew_file = f"{pref}/{split_type}P.10s.1dup_synthetic_multievent_waveforms.h5"

@@ -180,4 +180,4 @@ class PickerTrainer():
                 'training_rms': training_rms,
             }, model_file_name)
             self.network.write_weights_to_hdf5(os.path.join(self.model_path,
-                                                            'models_%03d.h5' % (epoch + 1)))
+                                                            'model_%03d.h5' % (epoch)))
