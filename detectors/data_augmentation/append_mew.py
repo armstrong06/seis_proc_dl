@@ -1,9 +1,11 @@
 import h5py
 import numpy as np
 
-pref = "/home/armstrong/Research/new/p_detector_mew/uuss_data"
-org_file = f"{pref}/combined.validate.10s.1dup.h5"
-mew_file = f"{pref}/validateP.10s.1dup_synthetic_multievent_waveforms.h5"
+pref = "/home/armstrong/Research/newer/p_detector_mew/uuss_data"
+split_type = "train"
+
+org_file = f"{pref}/combined.{split_type}.10s.1dup.h5"
+mew_file = f"{pref}/{split_type}P.10s.1dup_synthetic_multievent_waveforms.h5"
 
 with h5py.File(mew_file, "r") as hf:
     print(hf.keys())
