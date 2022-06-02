@@ -58,7 +58,7 @@ class Picker(BaseModel):
     def read_data(data_file):
         # TODO: This didn't work if data_file path is relative to the main script location
         with h5py.File(data_file, "r") as f:
-            X = f['X'][:, :, 2:3]
+            X = f['X'][:] # [:, :, 2:3] - test 1C
         return X
 
     def load_model_state(self, model_in):
