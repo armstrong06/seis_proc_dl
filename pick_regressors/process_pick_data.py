@@ -41,7 +41,7 @@ def randomize_start_times_and_normalize(X_in, time_series_len=600,
     if (n_distribution < 1):
         sys.exit("time_series_len =", time_series_len, "cannot exceed input trace length =", n_samples)
     random_lag = np.random.random_integers(-max_shift, +max_shift, size=n_obs * n_duplicate)
-    X_out = np.zeros([len(random_lag), time_series_len, 3], dtype='float')
+    X_out = np.zeros([len(random_lag), time_series_len, n_channels], dtype='float')
     ibeg = int(n_samples / 2) - int(time_series_len / 2)  # e.g., 100
     print("Beginning sample to which random lags are added:", ibeg)
     print("Min/max lag:", min(random_lag), max(random_lag))
@@ -59,7 +59,7 @@ def randomize_start_times_and_normalize(X_in, time_series_len=600,
             i1 = ibeg - random_lag[idst]  # shift is t - tau
             i2 = i1 + time_series_len
 
-            if X_in.shape[2] == 3:
+            if n_channels == 3:
                 # From the detectors, data is ordered ENZ
                 en = np.copy(X_in[iobs, i1:i2, 0])
                 nn = np.copy(X_in[iobs, i1:i2, 1])

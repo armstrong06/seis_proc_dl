@@ -1,5 +1,4 @@
 import torch
-from train_s_picker import CNNNetS, compute_outer_fence_mean_standard_deviation, randomize_start_times_and_normalize
 from scipy.stats import gaussian_kde
 import h5py
 import os
@@ -7,16 +6,21 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-class PickerEvaluator():
-    def __init__(self, model, device, time_series_length, dt, batch_size, outdir):
+import sys
+sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl/utils")
+from utils.model_helpers import compute_outer_fence_mean_standard_deviation
+
+class PickEvaluator():
+    def __init__(self, model, device, time_series_length, dt, batch_size, model_dir, outdir):
         self.model = model
         self.device = device
         self.time_series_length = time_series_length
         self.dt = dt
         self.batch_size = batch_size
         self.outdir = outdir
+        self.model_dir = model_dir
     
-    def apply_model(self, df, X_test, y_test, epochs, test_type, do_shift=False):
+    def apply_model(self, df, X_test, y_test, epochs, test_type, do_shift=True):
         results_df_name = f"{self.outdir}/{test_type}_results.csv"
         residuals_outname_pref = f"{self.outdir}/{test_type}_residuals.txt"
         predictions_outname_pref = f"{self.outdir}/{test_type}_predictions.txt"
@@ -36,8 +40,9 @@ class PickerEvaluator():
         all_residuals = np.zeros((len(epochs), n_rows))
         all_predictions = np.zeros((len(epochs), n_rows))
 
+        n_model = 0
         for epoch in epochs: #imodel in range(1):
-            model_to_test = 'model_%03d.h5'%(epoch)
+            model_to_test = '%s/model_%03d.pt'%(self.model_dir, epoch)
             results = {}
             results["model"] = model_to_test
 
@@ -63,14 +68,14 @@ class PickerEvaluator():
 
             model_mean = check_point['validation_mean_of']
             self.model.load_state_dict(check_point['model_state_dict'])
-            self.eval()
+            self.model.eval()
 
             n_total_pred = 0
             for batch in range(0, n_rows, self.batch_size):
                 i1 = batch
                 i2 = min(i1 + self.batch_size, n_rows)
                 X_batch = torch.tensor(X_test[i1:i2,:,:], dtype=torch.float).to(self.device)
-                y_est_batch = self.forward(X_batch)
+                y_est_batch = self.model.forward(X_batch)
                 for i in range(len(y_est_batch)):
                     y_pred[n_total_pred]  = y_est_batch[i].detach().cpu().numpy()
                     n_total_pred = n_total_pred + 1
@@ -80,7 +85,7 @@ class PickerEvaluator():
                 print("Shifting residuals by:", model_mean)
             else:
                 model_mean = 0
-                
+
             y_pred = y_pred + model_mean
             residuals = y_test - y_pred
 
@@ -89,10 +94,10 @@ class PickerEvaluator():
             all_residuals[n_model, :] = residuals
             n_model += 1
             
-            fname = model_to_test.replace('.pt', '.resid_snr.jpg')
-            fname = fname.replace('/', '_')
-            figure_name = os.path.join(figure_dir, fname) 
-            print(figure_name)
+            # fname = model_to_test.replace('.pt', '.resid_snr.jpg')
+            # fname = fname.replace('/', '_')
+            # figure_name = os.path.join(figure_dir, fname) 
+            # print(figure_name)
             # self.scatter_to_density(snr, residuals,
             #                 #xlim = [-1,1], ylim = [-20,40], s = 20,
             #                 xbins = np.linspace(-0.5,0.5,61), #[-0.5, -0.4, -0.3, -0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5],
@@ -108,7 +113,7 @@ class PickerEvaluator():
             results["mean_outer_fence_residuals"] = mean_of
             results["std_outer_fence_residuals"] = std_of
 
-            if test_type == "train" or test_type=="validate":
+            if len(historical_eq_rows) > 0 and len(current_blast_rows) > 0:
                 mean_of_eqc, std_of_eqc = compute_outer_fence_mean_standard_deviation(residuals[current_eq_rows])
                 print("Mean/std of current earthquake residuals:", np.mean(residuals[current_eq_rows]), np.std(residuals[current_eq_rows]))
                 print("Mean/std of outer fence current earthquake residuals:", mean_of_eqc, std_of_eqc)
@@ -135,6 +140,42 @@ class PickerEvaluator():
                 results["std_blc_residuals"] = np.std(residuals[current_blast_rows])
                 results["mean_blc_outer_fence_residuals"] = mean_of_blc
                 results["std_blc_outer_fence_residuals"] = std_of_blc
+            elif len(historical_eq_rows) > 0:
+                mean_of_eqc, std_of_eqc = compute_outer_fence_mean_standard_deviation(residuals[current_eq_rows])
+                print("Mean/std of current earthquake residuals:", np.mean(residuals[current_eq_rows]), np.std(residuals[current_eq_rows]))
+                print("Mean/std of outer fence current earthquake residuals:", mean_of_eqc, std_of_eqc)
+
+                results["mean_eqc_residuals"] = np.mean(residuals[current_eq_rows])
+                results["std_eqc_residuals"] = np.std(residuals[current_eq_rows])
+                results["mean_eqc_outer_fence_residuals"] = mean_of_eqc
+                results["std_eqc_outer_fence_residuals"] = std_of_eqc
+
+                mean_of_eqa, std_of_eqa = compute_outer_fence_mean_standard_deviation(residuals[historical_eq_rows])
+                print("Mean/std of historical earthquake residuals:", np.mean(residuals[historical_eq_rows]), np.std(residuals[historical_eq_rows]))
+                print("Mean/std of outer fence historical earthquake residuals:", mean_of_eqa, std_of_eqa)
+
+                results["mean_eqh_residuals"] = np.mean(residuals[historical_eq_rows])
+                results["std_eqh_residuals"] = np.std(residuals[historical_eq_rows])
+                results["mean_eqh_outer_fence_residuals"] = mean_of_eqa
+                results["std_eqh_outer_fence_residuals"] = std_of_eqa
+            elif len(current_blast_rows) > 0:
+                mean_of_eqc, std_of_eqc = compute_outer_fence_mean_standard_deviation(residuals[current_eq_rows])
+                print("Mean/std of current earthquake residuals:", np.mean(residuals[current_eq_rows]), np.std(residuals[current_eq_rows]))
+                print("Mean/std of outer fence current earthquake residuals:", mean_of_eqc, std_of_eqc)
+
+                results["mean_eqc_residuals"] = np.mean(residuals[current_eq_rows])
+                results["std_eqc_residuals"] = np.std(residuals[current_eq_rows])
+                results["mean_eqc_outer_fence_residuals"] = mean_of_eqc
+                results["std_eqc_outer_fence_residuals"] = std_of_eqc
+
+                mean_of_blc, std_of_blc = compute_outer_fence_mean_standard_deviation(residuals[current_blast_rows])
+                print("Mean/std of current blast residuals:", np.mean(residuals[current_blast_rows]), np.std(residuals[current_blast_rows]))
+                print("Mean/std of outer fence current blast residuals:", mean_of_blc, std_of_blc)
+
+                results["mean_blc_residuals"] = np.mean(residuals[current_blast_rows])
+                results["std_blc_residuals"] = np.std(residuals[current_blast_rows])
+                results["mean_blc_outer_fence_residuals"] = mean_of_blc
+                results["std_blc_outer_fence_residuals"] = std_of_blc
 
             all_results.append(results)
 
@@ -144,8 +185,8 @@ class PickerEvaluator():
             zero_close_weight = (abs(df['pick_quality'] - 0.75) < 1.e-4) & (df['source_receiver_distance'] <= 10) & (df['event_type'] == 'le')
             zero_far_weight = (abs(df['pick_quality'] - 0.75) < 1.e-4) & (df['source_receiver_distance'] > 10) & (df['event_type'] == 'le')
 
-            fname = model_to_test.replace('.pt', '.resid_quality.jpg')
-            fname = fname.replace('/', '_')
+            fname = model_to_test.split("/")[-1].replace('.pt', '_resid_quality.jpg')
+            #fname = fname.replace('/', '_')
             figure_name = os.path.join(figure_dir, fname) 
 
             plt.figure(figsize=(8,8))
@@ -170,6 +211,7 @@ class PickerEvaluator():
             else:
                 print("Saving...", figure_name)
                 plt.savefig(figure_name)
+                plt.close()
         # Loop on models
 
         results_df = pd.DataFrame(all_results)

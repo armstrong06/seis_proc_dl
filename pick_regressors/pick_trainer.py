@@ -3,11 +3,12 @@ import time
 import os
 import numpy as np
 import sys
-sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl/utils")
-from model_helpers import get_n_params, compute_outer_fence_mean_standard_deviation
 from torch.autograd import Variable
 
-class PickerTrainer():
+sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl/utils")
+from utils.model_helpers import get_n_params, compute_outer_fence_mean_standard_deviation
+
+class PickTrainer():
     def __init__(self, network, optimizer, model_path, device):
         self.network = network
         self.optimizer = optimizer
@@ -161,7 +162,7 @@ class PickerTrainer():
                     validation_mean_baseline, validation_std_baseline, validation_rms_baseline))
 
             model_file_name = os.path.join(self.model_path,
-                                           'models_%03d.pt' % (epoch + 1))
+                                           'model_%03d.pt' % (epoch))
             torch.save({
                 'epoch': epoch + 1,
                 'model_state_dict': self.network.state_dict(),

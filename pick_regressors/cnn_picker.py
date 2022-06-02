@@ -9,9 +9,9 @@ import sys
 sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl")
 from model.base_model import BaseModel
 from utils.model_helpers import NumpyDataset
-from process_picker_data import randomize_start_times_and_normalize
-from picker_trainer import PickerTrainer
-from picker_evaluator import PickerEvaluator
+from pick_regressors.process_pick_data import randomize_start_times_and_normalize
+from pick_regressors.pick_trainer import PickTrainer
+from pick_regressors.pick_evaluator import PickEvaluator
 
 class Picker(BaseModel):
     def __init__(self, config):
@@ -29,15 +29,15 @@ class Picker(BaseModel):
 
         # Model Config Params
         self.phase_type = self.config.model.phase_type
-        self.max_dt = self.config.model.max_dt
         self.freeze_convolutional_layers = self.config.model.freeze_convolutional_layers
         self.random_seed = self.config.model.random_seed
         np.random.seed(self.random_seed)
 
         # Data Config Params
-        self.time_series_len = self.config.data.time_series_len
+        self.time_series_len = self.config.data.time_series_length
         self.dt = self.config.data.dt
         self.n_duplicates = self.config.data.n_duplicates
+        self.max_dt = self.config.data.max_dt
 
         self.model_path = self.model_out_dir  # self.make_model_path(self.model_out_dir)
         self.evaluator = None
@@ -58,7 +58,7 @@ class Picker(BaseModel):
     def read_data(data_file):
         # TODO: This didn't work if data_file path is relative to the main script location
         with h5py.File(data_file, "r") as f:
-            X = f['X'][:]
+            X = f['X'][:, :, 2:3]
         return X
 
     def load_model_state(self, model_in):
@@ -83,13 +83,13 @@ class Picker(BaseModel):
         print("Randomizing start times")
         X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
                                                                max_dt=self.max_dt, dt=self.dt, n_duplicate=n_dups,
-                                                                radom_seed=self.random_seed)
+                                                                random_seed=self.random_seed)
 
         dataset = NumpyDataset(X, Y)
 
         loader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=self.batch_size,
+            batch_size=batch_size,
             shuffle=shuffle
         )
 
@@ -109,19 +109,19 @@ class Picker(BaseModel):
             print("Freezing convolutional layers...")
             self.model.freeze_convolutional_layers()
 
-        trainer = PickerTrainer(self.model, optimizer, model_path=self.model_path, device=self.device)
+        trainer = PickTrainer(self.model, optimizer, model_path=self.model_path, device=self.device)
         trainer.train(train_loader, validation_loader, self.train_epochs)
         self.evaluation_epoch = self.train_epochs
 
-    def evaluate(self, test_h5, test_csv, epochs, test_type, batch_size=None, shift_pred=False):
+    def evaluate_specified_models(self, test_h5, test_csv, epochs, test_type, batch_size=None, shift_pred=True):
         X = self.read_data(test_h5)
         df = pd.read_csv(test_csv)
         X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
                                                                max_dt=self.max_dt, dt=self.dt, n_duplicate=1,
-                                                               radom_seed=self.random_seed)
-        "Evaluate dataset on the final model"
-        if self.evaluation_epoch < 0:
-            print("No model state loaded - load or train a model first")
+                                                               random_seed=self.random_seed)
+        X = X.transpose((0, 2, 1))
+        if self.evaluation_epoch >= 0:
+            print("Can't do multi-model evaluation with model state loaded")
             return
 
         self.set_results_out_dir(test_type)
@@ -129,10 +129,13 @@ class Picker(BaseModel):
         if batch_size is None:
             batch_size = self.batch_size
 
-        evaluator = PickerEvaluator(self.model, self.device, self.time_series_len, 
-                                    self.dt, batch_size, self.results_out_dir)
+        evaluator = PickEvaluator(self.model, self.device, self.time_series_len, 
+                                    self.dt, batch_size, self.model_out_dir, self.results_out_dir)
 
         evaluator.apply_model(df, X, Y, epochs, test_type, do_shift=shift_pred)
+
+    def evaluate(self):
+        pass
 
 class CNNNet(torch.nn.Module):
     def __init__(self, num_channels=3, min_lag=-0.75, max_lag=0.75):
