@@ -6,7 +6,7 @@ import pandas as pd
 import h5py
 import numpy as np
 
-pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021"
+pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker"
 outdir = f'{pref}/s_resampled_picker/uuss'
 
 # NGB swarm bounds
@@ -25,26 +25,28 @@ bounds = {"lat_min": lat_min,
           "date_max": date_max}
 
 print("Loading catalogs...")
-current_earthquake_catalog_df = pd.read_csv(f'{pref}/S_current_earthquake_catalog.csv')
-current_earthquake_catalog_h5 = h5py.File(f'{pref}/S_current_earthquake_catalog.h5', 'r')
-historical_earthquake_catalog_df = pd.read_csv(f'{pref}/S_historical_earthquake_catalog.csv')
-historical_earthquake_catalog_h5 = h5py.File(f'{pref}/S_historical_earthquake_catalog.h5', 'r')
-current_blast_catalog_df = pd.read_csv(f'{pref}/S_current_blast_catalog_3c.csv')
-current_blast_catalog_h5 = h5py.File(f'{pref}/S_current_blast_catalog_3c.h5', 'r')
+current_earthquake_catalog_df = pd.read_csv(f'{pref}/current_earthquake_catalog_s.csv')
+current_earthquake_catalog_h5 = h5py.File(f'{pref}/current_earthquake_catalog_s.h5', 'r')
+historical_earthquake_catalog_df = pd.read_csv(f'{pref}/historical_earthquake_catalog_s.csv')
+historical_earthquake_catalog_h5 = h5py.File(f'{pref}/historical_earthquake_catalog_s.h5', 'r')
+current_blast_catalog_df = pd.read_csv(f'{pref}/current_blast_catalog_s.csv')
+current_blast_catalog_h5 = h5py.File(f'{pref}/current_blast_catalog_s.h5', 'r')
 
-current_earthquake_catalog_NGB_df, current_earthquake_catalog_noNGB_df = extract_events.separate_events(current_earthquake_catalog_df, bounds)
-# There are no NGB events for the given time period in blast or historical eq catalog
-X_NGB_eqc, y_NGB_eqc = extract_events.grab_from_h5files(current_earthquake_catalog_h5["X"][:, :],
-                                                       current_earthquake_catalog_h5["Y"][:],
-                                                        current_earthquake_catalog_NGB_df)
+# current_earthquake_catalog_NGB_df, current_earthquake_catalog_noNGB_df = extract_events.separate_events(current_earthquake_catalog_df, bounds)
+# # There are no NGB events for the given time period in blast or historical eq catalog
+# X_NGB_eqc, y_NGB_eqc = extract_events.grab_from_h5files(current_earthquake_catalog_h5["X"][:, :],
+#                                                        current_earthquake_catalog_h5["Y"][:],
+#                                                         current_earthquake_catalog_NGB_df)
+
 spliter = SplitData()
+spliter.make_directory(outdir)
 
 print("Partitioning current earthquake catalog")
 X_train_eqc_h5, y_train_eqc_h5, train_eqc_df, \
 X_validation_eqc_h5, y_validation_eqc_h5, validation_eqc_df, \
-X_test_eqc_h5, y_test_eqc_h5, test_eqc_df \
-    = spliter.split_event_wise(current_earthquake_catalog_noNGB_df, current_earthquake_catalog_h5,
-                       train_size=0.8, validation_size=0.1, test_size=0.1, filter_h5=True)
+X_test_eqc_h5, y_test_eqc_h5, test_eqc_df, NGB_data \
+    = spliter.split_event_wise(current_earthquake_catalog_df, current_earthquake_catalog_h5,
+                       train_size=0.8, validation_size=0.1, test_size=0.1, extract_event_bounds=bounds)
 
 print("Partitioning historical earthquake catalog")
 X_train_eqa_h5, y_train_eqa_h5, train_eqa_df, \
@@ -80,5 +82,5 @@ spliter.write_data_and_dataframes(outdir,
                               X_validation, y_validation, validation_df,
                               X_test, y_test, test_df)
 
-extract_events.write_h5file(X_NGB_eqc, y_NGB_eqc, f"{outdir}_NGB.h5")
-current_earthquake_catalog_NGB_df.to_csv(f"{outdir}_NGB.csv", index=False)
+extract_events.write_h5file(NGB_data[0], NGB_data[1], f"{outdir}_NGB.h5")
+NGB_data[2].to_csv(f"{outdir}_NGB.csv", index=False)

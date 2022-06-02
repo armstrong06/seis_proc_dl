@@ -10,7 +10,7 @@ archive_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchi
 catalog_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/data/'
 output_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker'
 phase_type = "S"
-waveform_halfwidth = 8
+waveform_halfwidth = 4
 is_detector = False
 
 if is_detector:

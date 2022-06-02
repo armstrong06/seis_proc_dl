@@ -3,8 +3,18 @@ import h5py
 import numpy as np
 from sklearn.model_selection import train_test_split
 import extract_events
+import os
 
 class SplitData():
+
+   @staticmethod
+   def make_directory(outfile_pref):
+       dir = os.path.split(outfile_pref)[0]
+       if not os.path.exists(dir):
+           print(f"Making output directory {dir}")
+           os.mkdir(dir)
+
+
    @staticmethod
    def get_matching_event_rows(evids, catalog_df):
       rows = np.zeros(len(catalog_df), dtype='int')
@@ -18,13 +28,28 @@ class SplitData():
                n_found = n_found + 1
       rows = rows[0:n_found]
       return rows
-   
+
+   def extract_events(self, input_catalog_df, input_catalog_h5, bounds):
+       extracted_df, kept_df = extract_events.separate_events(input_catalog_df, bounds)
+       # There are no NGB events for the given time period in blast or historical eq catalog
+       X_extracted, y_extracted = extract_events.grab_from_h5files(input_catalog_h5["X"][:, :],
+                                                               input_catalog_h5["Y"][:],
+                                                               extracted_df)
+
+       X_kept, y_kept= extract_events.grab_from_h5files(input_catalog_h5["X"][:, :],
+                                                               input_catalog_h5["Y"][:],
+                                                               kept_df)
+       print("Kept", X_kept.shape, y_kept.shape)
+       print("Extracted", X_extracted.shape, y_extracted.shape)
+
+       return (X_kept, y_kept, kept_df), (X_extracted, y_extracted, extracted_df)
+
    def split_event_wise(self, catalog_df_in, catalog_h5,
                         train_size = 0.7,
                         validation_size = 0.1,
                         test_size = 0.2,
                         min_training_quality = -1, is_stead=False,
-                        filter_h5=True):
+                        extract_event_bounds=None):
         """
         Splits the waveforms event-wise.  This prevents potential target leaking
         by preventing the neural network of gleaning potentially useful source
@@ -71,13 +96,16 @@ class SplitData():
         """
 
         # And the data
-        X = catalog_h5['X'][:,:,:]
-        y = catalog_h5['Y'][:]
-        print("Original data shape", X.shape, y.shape)
-        if filter_h5:
-          X = X[catalog_df_in.index, :, :]
-          y = y[catalog_df_in.index]
-          print("New data shape", X.shape, y.shape)
+
+        if extract_event_bounds is not None:
+            print("Original shape", catalog_df_in.shape)
+            kept_data, extracted_data = self.extract_events(catalog_df_in, catalog_h5, extract_event_bounds)
+            X, y, catalog_df_in = kept_data
+        else:
+            X = catalog_h5['X'][:, :, :]
+            y = catalog_h5['Y'][:]
+
+        print("Data shape", X.shape, y.shape, catalog_df_in.shape)
 
         assert X.shape[0] == len(catalog_df_in) and y.shape[0] == len(catalog_df_in), "Data shapes do not match"
 
@@ -168,6 +196,12 @@ class SplitData():
         print("Number of validation waveforms: %d (%f pct)"%(len(validation_df), len(validation_df)/len(catalog_df)*100.))
         print("Nominal number of test waveforms: %d (%f pct)"%(n_split_test_rows, n_split_test_rows/len(catalog_df)*100.))
         print("Actual number of available testing waveforms: %d (%f pct)"%(len(test_df), len(test_df)/len(catalog_df)*100.))
+
+        if extract_event_bounds is not None:
+            return X_train_h5, y_train_h5, train_df, \
+                   X_validation_h5, y_validation_h5, validation_df, \
+                   X_test_h5, y_test_h5, test_df, extracted_data
+
         return X_train_h5, y_train_h5, train_df, \
             X_validation_h5, y_validation_h5, validation_df, \
             X_test_h5, y_test_h5, test_df
