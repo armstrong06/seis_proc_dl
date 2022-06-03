@@ -53,7 +53,7 @@ class detector():
         if (lsigmoid):
             model_output = self.unet.forward(X)
             if self.min_presigmoid_value is not None:
-                model_output = clamp_presigmoid_values(model_output)
+                model_output = clamp_presigmoid_values(model_output, self.min_presigmoid_value)
             Y_est = torch.sigmoid(model_output)
         else:
             Y_est = self.unet.forward(X)
@@ -221,7 +221,7 @@ class phase_picker():
         return y_est
 
 class fm_picker():
-    def __init__(self, model_in,polarity=[1,-1,0], device=torch.device("cuda:0")):
+    def __init__(self, model_in,polarity=[1,-1, 0], device=torch.device("cuda:0")):
         self.device = device
         self.polarity = np.array(polarity)
         print("Initializing FM network...")
@@ -317,10 +317,10 @@ class apply_models():
             # obs.detrend('demean')
             # obs.taper(0.01, type="cosine")
             # obs.filter("bandpass", freqmin=1.0, freqmax=17.0, corners=2)
-            # if obs[0].stats.sampling_rate != 100:
-            #     print(f"Resampled from {obs[0].stats.sampling_rate} to 100 Hz...")
-            #     obs.resample(100)
-            return obs
+             if obs[0].stats.sampling_rate != 100:
+                 print(f"Resampled from {obs[0].stats.sampling_rate} to 100 Hz...")
+                 obs.resample(100)
+             return obs
 
         st_preproc = obspy_preproc(st.copy())
         npts = st_preproc[0].stats.npts
@@ -412,7 +412,7 @@ class apply_models():
                 obs_ex.detrend('linear')
                 obs_ex.detrend('demean')
                 obs_ex.taper(0.01, type="cosine")
-                # obs_ex.filter("bandpass", freqmin=1.0, freqmax=17.0, corners=2)
+                obs_ex.filter("bandpass", freqmin=1.0, freqmax=17.0, corners=2)
 
                 example = np.zeros((self.unet_window_length, num_channels))
                 for chan in range(num_channels):
@@ -424,7 +424,14 @@ class apply_models():
                 ## example = self.obspy_bandpass(example, freqmin=1.0, freqmax=17.0, corners=2)
                 
                 # normalize the data for the window 
-                example = example/np.max(abs(example), axis=0)
+                norm_vals = np.max(abs(example), axis=0)
+                norm_vals_inv = np.zeros_like(norm_vals)
+                for nv_ind in range(len(norm_vals)):
+                    nv = norm_vals[nv_ind]
+                    if abs(nv) > 1e-4:
+                        norm_vals_inv[nv_ind] = 1/nv
+
+                example = example*norm_vals_inv
                 batch[example_ind-batch_start, :, :] = example
 
             if num_channels == 3:
@@ -556,7 +563,15 @@ class apply_models():
             ex_start = start_indicies[example_ind]
             example = cont_data[ex_start:ex_start+self.unet_window_length].copy()
             # normalize the data for the window 
-            example = example/np.max(abs(example))
+            norm_vals = np.max(abs(example), axis=0)
+            norm_vals_inv = np.zeros_like(norm_vals)
+            for nv_ind in range(len(norm_vals)):
+                nv = norm_vals[nv_ind]
+                if abs(nv) > 1e-4:
+                    norm_vals_inv[nv_ind] = 1/nv
+
+            example = example*norm_vals_inv
+            # example = example/np.max(abs(example), axis=0)
             edge_cases[cnt, :, :] = example
             cnt += 1
         if num_channels == 3:
@@ -658,7 +673,16 @@ class apply_models():
                 else:
                     example = cont_data[ex_start:ex_start+window_length, chan_ind].copy()
                 # normalize the data for the window 
-                example = example/np.max(abs(example))
+                # example = example/np.max(abs(example), axis=0)
+                norm_vals = np.max(abs(example), axis=0)
+                norm_vals_inv = np.zeros_like(norm_vals)
+                for nv_ind in range(len(norm_vals)):
+                    nv = norm_vals[nv_ind]
+                    if abs(nv) > 1e-4:
+                        norm_vals_inv[nv_ind] = 1/nv
+
+                example = example*norm_vals_inv
+
                 batch[example_ind-batch_start, :] = example
 
             model_outputs[batch_start:batch_end] = model.apply_model_to_batch(batch)
@@ -751,7 +775,7 @@ if __name__ == "__main__":
         "pDetector3c": f"{model_dir}/pDetector_model027.pt", 
         "sDetector": f"{model_dir}/sDetector_model003.pt", 
         "pPicker": f"{model_dir}/pPicker_model006.pt", 
-        "fmPicker": f"{model_dir}/fmPicker_002.pt",
+        "fmPicker": f"{model_dir}/fmPicker_model002.pt",
         "sPicker": f"{model_dir}/sPicker_model012.pt",
         "pDetector1c":f"{model_dir}/oneCompPDetector_model029.pt"
         }
@@ -780,17 +804,18 @@ if __name__ == "__main__":
     min_presigmoid_value = -70
     applier = apply_models(models, center_window, sliding_interval, unet_window_length, pcnn_window_length, 
                             batch_size=batch_size, min_presigmoid_value=min_presigmoid_value)
-    save_probs_file = True
+    save_probs_file = None
 
     # Get the unique starting dates of files
     dates = set()
-    for file in glob.glob("data/*mseed"):
+    for file in glob.glob(f"{data_dir}/*mseed"):
         date = file.split("__")
         dates.add(date[1])
     dates = np.sort(list(dates))
-    
+   
+    print(dates)
     # Iterate over the dates
-    for date in [dates[5]]:
+    for date in dates:
         print(f"Starting on date from {date}...")
         # Get the station names and a count from data_dir file names for the given date.
         # If only intersted in one station, don't do all that counting
@@ -812,6 +837,7 @@ if __name__ == "__main__":
         if single_stat_string is not None:
             station_name_list = [single_stat_string]
 
+        print(station_name_list)
         for stat in station_name_list:
             # Check the number of channels for the given station
             if station_names[stat] == 1:
