@@ -73,7 +73,7 @@ class Picker(BaseModel):
         print(f"Loading model state with {model_in}")
         check_point = torch.load(model_in)
         self.model.load_state_dict(check_point['model_state_dict'])
-        print(check_point["epoch"], check_point["loss"])
+        print(check_point["epoch"], check_point["training_loss"])
 
         self.evaluation_epoch = check_point["epoch"]
 
@@ -113,6 +113,7 @@ class Picker(BaseModel):
         trainer.train(train_loader, validation_loader, self.train_epochs)
         self.evaluation_epoch = self.train_epochs
 
+    # TODO: add in is_stead flag from uncledeadly code
     def evaluate_specified_models(self, test_h5, test_csv, epochs, test_type, batch_size=None, shift_pred=True):
         X = self.read_data(test_h5)
         df = pd.read_csv(test_csv)
