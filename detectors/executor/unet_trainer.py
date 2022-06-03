@@ -149,7 +149,7 @@ class UNetTrainer():
                     # Forward pass only
                     val_outputs = self.network(inputs)
                     if self.min_presigmoid_value is not None:
-                        val_outputs = self.clamp_presigmoid_values(val_outputs)
+                        val_outputs = clamp_presigmoid_values(val_outputs)
                     val_outputs = torch.sigmoid(val_outputs)
 
                     val_loss = self.loss_fn(val_outputs, y_true)

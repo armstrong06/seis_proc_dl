@@ -15,6 +15,11 @@ from obspy.core.utcdatetime import UTCDateTime
 import matplotlib.pyplot as plt
 import h5py
 
+from utils.model_helpers import clamp_presigmoid_values
+from detectors.models.unet import UNetModel
+from pick_regressors.cnn_picker import CNNNet
+from fm_classifiers.train_fm import FMNet
+
 from scipy.signal import iirfilter
 try:
     from scipy.signal import sosfilt
@@ -26,21 +31,14 @@ except ImportError:
 sys.path.append('/home/armstrong/Research/')
 
 class detector():
-    def __init__(self, phase, model_to_test, num_channels=3):
-        
-        if phase == "P" and num_channels==3:
-            from pDetector_threecomp_mew.train_gpd_unet import UNet
-        elif phase == "P" and num_channels == 1:
-            from pDetector_onecomp.train_gpd_unet_1c import UNet
-        elif phase == "S":
-            from sDetector.train_gpd_unet import UNet
-
+    def __init__(self, phase, model_to_test, num_channels=3, min_presigmoid_value=None):
         self.phase = phase
         warnings.simplefilter("ignore")
         self.device = torch.device("cuda:0")
+        self.min_presigmoid_value = min_presigmoid_value
 
         print(f"Initializing {num_channels} comp {phase} unet...")
-        self.unet = UNet(num_channels=num_channels, num_classes=1).to(self.device)
+        self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)
         print("Number of parameters in my model:", self.get_n_params())
         assert os.path.exists(model_to_test), f"Model {model_to_test} does not exist"
         print("Loading model:", model_to_test)
@@ -51,8 +49,11 @@ class detector():
     def apply_model_to_batch(self, X, lsigmoid=True, center_window=None):
         n_samples = X.shape[1] 
         X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.device)
+        
         if (lsigmoid):
             model_output = self.unet.forward(X)
+            if self.min_presigmoid_value is not None:
+                model_output = clamp_presigmoid_values(model_output)
             Y_est = torch.sigmoid(model_output)
         else:
             Y_est = self.unet.forward(X)
@@ -197,12 +198,11 @@ class phase_picker():
         self.phase = phase
         print(f"Initializing {phase} picking network...")
         
-        if phase == "P":
-            from pPicker.train_picker import CNNNet
-            self.cnnnet = CNNNet(min_lag = -max_dt_nn, max_lag = +max_dt_nn).to(device)
-        else:
-            from sPicker.train_s_picker import CNNNetS
-            self.cnnnet = CNNNetS(min_lag = -max_dt_nn, max_lag = +max_dt_nn).to(device)
+        num_channels = 1
+        if phase == "S":
+            num_channels = 3
+
+        self.cnnnet = CNNNet(num_channels=num_channels, min_lag = -max_dt_nn, max_lag = +max_dt_nn).to(device)
 
         print("Loading model: ", model_to_test)
         check_point = torch.load(model_to_test)
@@ -222,7 +222,6 @@ class phase_picker():
 
 class fm_picker():
     def __init__(self, model_in,polarity=[1,-1,0], device=torch.device("cuda:0")):
-        from fm_picker.train_fm import FMNet
         self.device = device
         self.polarity = np.array(polarity)
         print("Initializing FM network...")
@@ -245,7 +244,7 @@ class fm_picker():
         return self.polarity
 
 class apply_models():
-    def __init__(self, models, center_window, sliding_interval, unet_window_length, pcnn_window_length, batch_size=64, scnn_window_length=600):
+    def __init__(self, models, center_window, sliding_interval, unet_window_length, pcnn_window_length, batch_size=64, scnn_window_length=600, min_presigmoid_value=None):
         self.center_window = center_window
         self.sliding_interval = sliding_interval
         self.unet_window_length = unet_window_length
@@ -253,9 +252,9 @@ class apply_models():
         self.batch_size=batch_size
 
         # Initialize models 
-        self.p_detector3c = detector("P", models["pDetector3c"], num_channels=3)
-        self.s_detector = detector("S", models["sDetector"], num_channels=3)
-        self.p_detector1c = detector("P", models["pDetector1c"], num_channels=1)
+        self.p_detector3c = detector("P", models["pDetector3c"], num_channels=3, min_presigmoid_value=min_presigmoid_value)
+        self.s_detector = detector("S", models["sDetector"], num_channels=3, min_presigmoid_value=min_presigmoid_value)
+        self.p_detector1c = detector("P", models["pDetector1c"], num_channels=1, min_presigmoid_value=min_presigmoid_value)
 
         self.ppicker = phase_picker("P", models["pPicker"])
         self.fmpicker = fm_picker(models["fmPicker"])
@@ -746,23 +745,23 @@ class apply_models():
 if __name__ == "__main__":
     #### Set Parameters and Initialize the Classes ####
     print("Working directory:", os.getcwd())
-    model_dir = "./selected_models"
-    data_dir = "./data"
+    model_dir = "/home/armstrong/Research/newer/sg_selected_models" #"./selected_models"
+    data_dir = "/home/armstrong/Research/apply_models/data" #"./data"
     models = {
-        "pDetector3c": f"{model_dir}/pDetector_model_021.pt", 
-        "sDetector": f"{model_dir}/sDetector_finetuned_model_023.pt", 
-        "pPicker": f"{model_dir}/pPicker_model_002.pt", 
-        "fmPicker": f"{model_dir}/fm_model_011.pt",
-        "sPicker": f"{model_dir}/sPicker_model_013.pt",
-        "pDetector1c":f"{model_dir}/onecomp_pDetector_model_032.pt"
+        "pDetector3c": f"{model_dir}/pDetector_model027.pt", 
+        "sDetector": f"{model_dir}/sDetector_model003.pt", 
+        "pPicker": f"{model_dir}/pPicker_model006.pt", 
+        "fmPicker": f"{model_dir}/fmPicker_002.pt",
+        "sPicker": f"{model_dir}/sPicker_model012.pt",
+        "pDetector1c":f"{model_dir}/oneCompPDetector_model029.pt"
         }
 
     # If debug_s_detector is True, then this is the output h5 file for the problem examples. 
     # Otherwise, this is a csv file of the pick information.
-    outfilename = f's_detector_failures/seperateprocessing.nofilter.normalizeseperate.PB.B944.indsofinterest' # no file type suffix
-    single_stat_string="B944*EH" # format station*station_type
+    outfilename = f'/home/armstrong/Research/newer/applied_results/sg.results.' # no file type suffix
+    single_stat_string=None #"B944*EH" # format station*station_type
     debug_s_detector=False
-    debug_inds_file = "s_detector_failures/seperateprocessing.PB.B944.20140330T000000Z.badinds.txt"
+    debug_inds_file = None #"s_detector_failures/seperateprocessing.PB.B944.20140330T000000Z.badinds.txt"
     
     if debug_inds_file is not None and debug_s_detector:
         raise ValueError("Cannot debug s detector and output indicies of interest, change one to False/None")
@@ -778,8 +777,10 @@ if __name__ == "__main__":
     unet_window_length = 1008
     pcnn_window_length = 400
     scnn_window_length = 600
-    applier = apply_models(models, center_window, sliding_interval, unet_window_length, pcnn_window_length, batch_size=batch_size)
-    save_probs_file = False
+    min_presigmoid_value = -70
+    applier = apply_models(models, center_window, sliding_interval, unet_window_length, pcnn_window_length, 
+                            batch_size=batch_size, min_presigmoid_value=min_presigmoid_value)
+    save_probs_file = True
 
     # Get the unique starting dates of files
     dates = set()
