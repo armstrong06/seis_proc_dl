@@ -150,8 +150,13 @@ class UNetEvaluator():
 
 
     def tabulate_metrics(self, true_pick_index, est_pick_proba, est_pick_index, model_epoch,
-                        tols = [0.1, 0.25, 0.5, 0.75, 0.9]):
+                        tols = [0.1, 0.25, 0.5, 0.75, 0.9], df=None):
         results = []
+
+        if df is not None:
+            current_eq_rows = np.arange(0, len(df))[ (df['event_type'] == 'le') & (df['evid'] >= 60000000) ]
+            current_blast_rows = np.arange(0, len(df))[df['event_type'] == 'qb']
+            historical_eq_rows = np.arange(0, len(df))[(df['event_type'] == 'le') & (df['evid'] < 60000000) ]
 
         # Make a binary array of the picks (1=singal, 0=noise)
         Y_obs = (true_pick_index >= 0)*1
@@ -179,45 +184,92 @@ class UNetEvaluator():
                 residual_mean = 0
                 residual_std = 0
             
+            def compute_acc_prec_recall(tn, fp, fn, tp):
+                if (tp + tn + fp + fn) == 0:
+                    acc = 0
+                else:
+                    acc  = (tn + tp)/(tp + tn + fp + fn)
+                
+                if (tp + fp) == 0:
+                    prec = 0
+                else:
+                    prec   = tp/(tp + fp)
+
+                if (tp + fn) == 0:
+                    recall = 0
+                else:
+                    recall = tp/(tp + fn)
+                
+                return acc, prec, recall
+
+            def compute_subset_stats(rows):
+                Y_obs_subset = Y_obs[rows]
+                Y_est_subset =  Y_est[rows]
+                tn_sub, fp_sub, fn_sub, tp_sub = confusion_matrix(Y_obs_subset, Y_est_subset, labels=[0, 1]).ravel()
+                acc, prec, recall = compute_acc_prec_recall(tn_sub, fp_sub, fn_sub, tp_sub)
+                return acc, prec, recall
+
             # I had to add label into this or it breaks when 100% accuracte. If there are more than 2 classes, will need to edit this. 
             tn, fp, fn, tp = confusion_matrix(Y_obs, Y_est, labels=[0, 1]).ravel()
-            
-            if (tp + tn + fp + fn) == 0:
-                acc = 0
-            else:
-                acc  = (tn + tp)/(tp + tn + fp + fn)
-            
-            if (tp + fp) == 0:
-                prec = 0
-            else:
-                prec   = tp/(tp + fp)
+            acc, prec, recall = compute_acc_prec_recall(tn, fp, fn, tp)
 
-            if (tp + fn) == 0:
-                recall = 0
-            else:
-                recall = tp/(tp + fn)
+            if df is not None:
+                ceq_acc, ceq_prec, ceq_recall = compute_subset_stats(current_eq_rows)
+                heq_acc, heq_prec, heq_recall = compute_subset_stats(historical_eq_rows)
+                cbl_acc, cbl_prec, cbl_recall = compute_subset_stats(current_blast_rows)
+                noise_acc, noise_prec, noise_recall = None, None, None
+                if len(true_pick_index) > len(df):
+                    noise_acc, noise_prec, noise_recall = compute_subset_stats(np.arange(len(df), len(true_pick_index)))
 
-            dic = {"epoch": model_epoch,
-                "n_picks": n_picks,
-                "n_picked": len(index_resid),
-                "tolerance": tol,
-                "accuracy": acc,
-                "precision": prec,
-                "residual_mean": residual_mean,
-                "residual_std": residual_std,
-                "trimmed_residual_mean": trimmed_mean,
-                "trimmed_residual_std": trimmed_std,
-                "recall": recall, 
-                "tp": tp, 
-                "tn": tn, 
-                "fp": fp, 
-                "fn":fn}
+                dic = {"epoch": model_epoch,
+                    "n_picks": n_picks,
+                    "n_picked": len(index_resid),
+                    "tolerance": tol,
+                    "accuracy": acc,
+                    "precision": prec,
+                    "recall": recall, 
+                    "residual_mean": residual_mean,
+                    "residual_std": residual_std,
+                    "trimmed_residual_mean": trimmed_mean,
+                    "trimmed_residual_std": trimmed_std,
+                    "tp": tp, 
+                    "tn": tn, 
+                    "fp": fp, 
+                    "fn":fn, 
+                    "ceq_accuracy": ceq_acc,
+                    "ceq_precision": ceq_prec,
+                    "ceq_recall": ceq_recall,
+                    "heq_accuracy": heq_acc,
+                    "heq_precision": heq_prec,
+                    "heq_recall": heq_recall,
+                    "cbl_accuracy": cbl_acc,
+                    "cbl_precision": cbl_prec,
+                    "cbl_recall": cbl_recall,
+                    "noise_accuracy": noise_acc,
+                    "noise_precision": noise_prec,
+                    "noise_recall": noise_recall}
+            else:
+                dic = {"epoch": model_epoch,
+                    "n_picks": n_picks,
+                    "n_picked": len(index_resid),
+                    "tolerance": tol,
+                    "accuracy": acc,
+                    "precision": prec,
+                    "residual_mean": residual_mean,
+                    "residual_std": residual_std,
+                    "trimmed_residual_mean": trimmed_mean,
+                    "trimmed_residual_std": trimmed_std,
+                    "recall": recall, 
+                    "tp": tp, 
+                    "tn": tn, 
+                    "fp": fp, 
+                    "fn":fn}
 
             results.append(dic)
         return results
 
     def tabulate_metrics_mew(self, T_test, T_test2, Y_proba, T_est_index, epoch, Y_data_est, Y_data_act,
-                        tols=[0.1, 0.25, 0.5, 0.75, 0.9]):
+                        tols=[0.1, 0.25, 0.5, 0.75, 0.9], df=None):
         results_p1 = []
         results_p2 = []
         results_comb = []
@@ -229,6 +281,13 @@ class UNetEvaluator():
         n_picks1 = np.sum(Y_obs)
         n_picks2 = np.sum(Y_obs2)
         n_noise = len(T_test) - n_picks1
+
+        if df is not None:
+            current_eq_rows = np.arange(0, len(df))[ (df['event_type'] == 'le') & (df['evid'] >= 60000000) ] + len(T_test2)
+            current_blast_rows = np.arange(0, len(df))[df['event_type'] == 'qb'] + len(T_test2)
+            historical_eq_rows = np.arange(0, len(df))[(df['event_type'] == 'le') & (df['evid'] < 60000000) ] + len(T_test2)
+
+            assert np.min([np.min(current_eq_rows), np.min(current_blast_rows), np.min(historical_eq_rows)]) >= 0, "Index is less than 0"
 
         for tol in tols:
             # Y_est = (Y_proba > tol) * 1
@@ -289,7 +348,6 @@ class UNetEvaluator():
                 jaccard_sims[i] = js
                 jaccard_sims_proba[i] = self.calculate_jaccard_similarity_proba(Y_data_act[i], Y_data_est[i], tol)
 
-
             index_resid = np.copy(index_resid[0:j])
 
             # assign 0 and ones based on where there was a residual calculated or not
@@ -307,7 +365,7 @@ class UNetEvaluator():
             # Change estimated noise classification to 1 in there were any proba over threshold, so we can get an accurate estimate of TN 
             Y_est1[-n_noise:] = noise_class
 
-            def calc_stats(Y_obs, Y_est, n_picks, residuals, fp):
+            def calc_stats(Y_obs, Y_est, n_picks, residuals, fp, df=None):
                 residuals = residuals[np.where(~np.isnan(residuals))[0]]
 
                 trimmed_mean, trimmed_std = self.compute_outer_fence_mean_standard_deviation(residuals)
@@ -318,27 +376,75 @@ class UNetEvaluator():
                 acc = (tn + tp) / (tp + tn + fp + fn)
                 prec = tp / (tp + fp)
                 recall = tp / (tp + fn)
-                dic = {"epoch": epoch,
-                    "n_picks": n_picks,
-                    "n_picked": len(residuals),
-                    "tolerance": tol,
-                    "accuracy": acc,
-                    "precision": prec,
-                    "residual_mean": np.mean(residuals),
-                    "residual_std": np.std(residuals),
-                    "trimmed_residual_mean": trimmed_mean,
-                    "trimmed_residual_std": trimmed_std,
-                    "recall": recall, 
-                    "tp": tp, 
-                    "tn": tn, 
-                    "fp": fp, 
-                    "fn": fn, 
-                    "fp_notused": fp_nothing}
+
+                def compute_subset_stats(rows):
+                    Y_obs_subset = Y_obs[rows]
+                    Y_est_subset =  Y_est[rows]
+                    tn_sub, fp_sub, fn_sub, tp_sub = confusion_matrix(Y_obs_subset, Y_est_subset, labels=[0, 1]).ravel()
+                    acc = (tn_sub + tp_sub) / (tp_sub + tn_sub + fp_sub + fn_sub)
+                    prec = tp_sub / (tp_sub + fp_sub)
+                    recall = tp_sub / (tp_sub + fn_sub)
+                    return acc, prec, recall
+
+                if df is not None:
+                    ceq_acc, ceq_prec, ceq_recall = compute_subset_stats(current_eq_rows)
+                    heq_acc, heq_prec, heq_recall = compute_subset_stats(historical_eq_rows)
+                    cbl_acc, cbl_prec, cbl_recall = compute_subset_stats(current_blast_rows)
+                    
+                    noise_acc, noise_prec, noise_recall = None, None, None
+                    if len(T_test) > len(df):
+                        noise_acc, noise_prec, noise_recall = compute_subset_stats(np.arange(len(df), len(T_test)))
+                    
+                    dic = {"epoch": epoch,
+                        "n_picks": n_picks,
+                        "n_picked": len(index_resid),
+                        "tolerance": tol,
+                        "accuracy": acc,
+                        "precision": prec,
+                        "recall": recall, 
+                        "residual_mean": np.mean(residuals),
+                        "residual_std": np.mean(residuals),
+                        "trimmed_residual_mean": trimmed_mean,
+                        "trimmed_residual_std": trimmed_std,
+                        "tp": tp, 
+                        "tn": tn, 
+                        "fp": fp, 
+                        "fn":fn, 
+                        "fp_notused": fp_nothing,
+                        "ceq_accuracy": ceq_acc,
+                        "ceq_precision": ceq_prec,
+                        "ceq_recall": ceq_recall,
+                        "heq_accuracy": heq_acc,
+                        "heq_precision": heq_prec,
+                        "heq_recall": heq_recall,
+                        "cbl_accuracy": cbl_acc,
+                        "cbl_precision": cbl_prec,
+                        "cbl_recall": cbl_recall,
+                        "noise_accuracy": noise_acc,
+                        "noise_precision": noise_prec,
+                        "noise_recall": noise_recall}
+                else:
+                    dic = {"epoch": epoch,
+                        "n_picks": n_picks,
+                        "n_picked": len(residuals),
+                        "tolerance": tol,
+                        "accuracy": acc,
+                        "precision": prec,
+                        "residual_mean": np.mean(residuals),
+                        "residual_std": np.mean(residuals),
+                        "trimmed_residual_mean": trimmed_mean,
+                        "trimmed_residual_std": trimmed_std,
+                        "recall": recall, 
+                        "tp": tp, 
+                        "tn": tn, 
+                        "fp": fp, 
+                        "fn": fn, 
+                        "fp_notused": fp_nothing}
 
                 return dic
 
             # Results for individual picks 
-            dict_p1 = calc_stats(Y_obs, Y_est1, n_picks1, resids1, fp_all)
+            dict_p1 = calc_stats(Y_obs, Y_est1, n_picks1, resids1, fp_all, df=df)
             dict_p2 = calc_stats(Y_obs2, Y_est2, n_picks2, resids2, fp_p2)
             # Results when having all the picks for a waveform counts as a success 
             tmp = np.full(len(Y_est1), 1)

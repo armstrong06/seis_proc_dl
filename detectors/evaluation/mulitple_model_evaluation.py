@@ -47,7 +47,7 @@ class MultiModelEval():
 
         return X_test, T_test
 
-    def evaluate_over_models(self, data_path, tols, pick_method, save_proba=False):
+    def evaluate_over_models(self, data_path, tols, pick_method, df=None, save_proba=False):
 
         # Not going to save all posterior probs here because that seems uneccessary, 
         # just choose a model and then evaluate using evalutor and save
@@ -79,7 +79,7 @@ class MultiModelEval():
                                 'residual': T_test[i] - T_est_index[i],
                                 'probability': Y_proba[i]})
 
-            metric = self.evaluator.tabulate_metrics(T_test, Y_proba, T_est_index, epoch, tols=tols)
+            metric = self.evaluator.tabulate_metrics(T_test, Y_proba, T_est_index, epoch, tols=tols, df=df)
             for m in metric:
                 m.update(training_loss)
                 metrics.append(m)
@@ -103,7 +103,7 @@ class MultiModelEval():
         df_resid.to_csv(f'{self.output_dir}/residuals.csv', index=False)
 
 
-    def evaluate_over_models_mew(self, data_path, tols, save_proba=False, save_js=False):
+    def evaluate_over_models_mew(self, data_path, tols, save_proba=False, save_js=False, df=None):
         start = time.time()
 
         metrics_p1 = []
@@ -194,7 +194,7 @@ class MultiModelEval():
                                         #'snr': snrs[i] 
 
             metric_p1, metric_p2, metric_comb, metric_js, js_arrays = self.evaluator.tabulate_metrics_mew(T_test, T_test2, Y_proba, T_est_index, epoch, post_probs,
-                                                                                Y_test, tols=tols)
+                                                                                Y_test, tols=tols, df=df)
 
             # TODO: check this - I'm not sure what update is doing
             for m in metric_p1:

@@ -11,6 +11,7 @@ sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl/detectors")
 from executor.unet_trainer import UNetTrainer
 from evaluation.unet_evaluator import UNetEvaluator
 from evaluation.mulitple_model_evaluation import MultiModelEval
+import pandas as pd
 
 class UNet(BaseModel):
     def __init__(self, config):
@@ -37,11 +38,14 @@ class UNet(BaseModel):
 
         self.results_out_dir = None #f"{self.model_out_dir}/results"
 
-    def set_results_out_dir(self, test_type):
+    def set_results_out_dir(self, test_type, have_df=False):
         outdir = f"{self.model_out_dir}/{test_type}_results"
+        if have_df:
+            outdir = f"{outdir}_sep"
+
         if (os.path.exists(outdir)):
             print(f"output directory {outdir} already exists.")
-            outdir = f"{self.model_out_dir}/{test_type}_results1"
+            outdir = f"{outdir}1"
 
         self.results_out_dir = outdir
 
@@ -134,11 +138,17 @@ class UNet(BaseModel):
 
     # TODO: Make this a class method?
     # TODO: Add way to evalute the selected pre-trained model first?
-    def evaluate_specified_models(self, test_file, epochs, test_type, batch_size=None, tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False):
+    def evaluate_specified_models(self, test_file, epochs, test_type, batch_size=None, 
+                                    tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False, df=None):
         if self.evaluation_epoch >= 0:
             print("Can't do multi-model evaluation with model state loaded")
         
-        self.set_results_out_dir(test_type)
+        have_df = False
+        if df is not None:
+            have_df = True
+            df = pd.read_csv(df)
+
+        self.set_results_out_dir(test_type, have_df=have_df)
 
         if batch_size is None:
             batch_size = self.batch_size
@@ -147,9 +157,9 @@ class UNet(BaseModel):
         multi_evaluator = MultiModelEval(self.model, self.model_path, epochs, single_evaluator, self.results_out_dir)
         
         if mew:
-            multi_evaluator.evaluate_over_models_mew(test_file, tols)
+            multi_evaluator.evaluate_over_models_mew(test_file, tols, df=df)
         else:
-            multi_evaluator.evaluate_over_models(test_file, tols, pick_method)
+            multi_evaluator.evaluate_over_models(test_file, tols, pick_method, df=df)
 
     def make_model_path(self, path):
         return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}'
