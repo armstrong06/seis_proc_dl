@@ -6,15 +6,16 @@ import os
 
 archive_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/archives/'
 catalog_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/bbaker/waveformArchive/data/'
-output_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/uuss2021'
-is_first_motion_data = False
-waveform_halfwidth = 10
+output_dir = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/fmPicker'
+is_first_motion_data = True
+waveform_halfwidth = 3
 
 processing_function = uuss.OneComponentPicker.ZCNN.ProcessData()
 #processing_function = uuss.OneComponentPicker.ZCNN.ProcessData()
 if is_first_motion_data:
     processing_function = uuss.FirstMotion.FMNet.ProcessData()
 
+print("Using processing function", processing_function)
 # Initialize 
 gatherer = OneComponentGatherer(archive_dir, processing_function)
 infilename_roots = ['currentEarthquakeArrivalInformation', 'currentBlastArrivalInformation', 'historicalEarthquakeArrivalInformation']

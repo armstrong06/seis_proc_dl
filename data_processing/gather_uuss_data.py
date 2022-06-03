@@ -115,6 +115,7 @@ class OneComponentGatherer(BaseGatherDataUUSS):
         assert len(catalog_df) == np.sum(1*lfound), 'dataframe subsample failed'
         catalog_df.to_csv(output_file_csv, index=False)
 
+
     def create_combined_catalogs(self, catalog_3c_filename, catalog_1c_filename):
         """
         Join catalogs for 3C and 1C vertical data. 
@@ -137,6 +138,7 @@ class OneComponentGatherer(BaseGatherDataUUSS):
         print("Length of combined catalog:", len(combined_catalog_df))
         return combined_catalog_df
 
+    @staticmethod
     def additional_fm_filtering(catalog_df, drop_down=False):
         """
         Remove the "1" quality picks from First Motion catalog and optionally remove any "down" first motions (for quarry blasts)
@@ -153,6 +155,7 @@ class OneComponentGatherer(BaseGatherDataUUSS):
             waveform metadata with "1" quality picks removed and possibly no "down" first motions
         """
         ## Since "1" quality picks (0.75 jiggle weight) tend to be confusing we drop them here.
+        print("Removing 1 quality picks")
         catalog_df = catalog_df[(catalog_df['pick_quality'] == 0.5) |
                                 (catalog_df['pick_quality'] == 1)]
         if (drop_down):

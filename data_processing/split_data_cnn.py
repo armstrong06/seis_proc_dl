@@ -102,8 +102,11 @@ class SplitData():
             kept_data, extracted_data = self.extract_events(catalog_df_in, catalog_h5, extract_event_bounds)
             X, y, catalog_df_in = kept_data
         else:
-            X = catalog_h5['X'][:, :, :]
+            X = catalog_h5['X'][:]
             y = catalog_h5['Y'][:]
+
+        if len(X.shape) == 2:
+             X = np.expand_dims(X, axis=2)
 
         print("Data shape", X.shape, y.shape, catalog_df_in.shape)
 
