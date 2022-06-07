@@ -666,15 +666,22 @@ class apply_models():
 
                 ex_start = int(pick_inds[example_ind]) - waveform_halfwidth
                 # If the pick is close to the beginning, pad the start of the waveform with zeros
-                if ex_start < 0:
+                if processing_start < 0: #ex_start < 0:
                     #pad_zeros = np.zeros((-ex_start, num_channels))
-                    pad = np.ones((-ex_start, num_channels)) * example_proc[0, :]
-                    example_proc = np.concatenate([pad, example_proc[0:-100]])
-                elif ex_start + window_length > len(cont_data):
+                    if ex_start < 0:
+                        pad = np.ones((-ex_start, num_channels)) * example_proc[0, :]
+                        example_proc = np.concatenate([pad, example_proc[0:-100]])
+                    else:
+                        start_ind = 100 - (processing_start)
+                        example_proc = example_proc[start_ind:-100]
+                elif processing_end > len(cont_data): #ex_start + window_length > len(cont_data):
                     # try pad = np.ones(correct_size)*cont_data[-1, :]
-                    pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * example_proc[-1, :]
-                    #pad_zeros = np.zeros((ex_start + window_length - len(cont_data), num_channels))
-                    example_proc= np.concatenate([example_proc[100:], pad])
+                    if ex_start + window_length > len(cont_data):
+                        pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * example_proc[-1, :]
+                        example_proc= np.concatenate([example_proc[100:], pad])
+                    else:
+                        end_ind = 100 - (processing_end - len(cont_data))
+                        example_proc = example_proc[100:-end_ind]
                 else:
                     example_proc = example_proc[100:-100]
 
@@ -818,8 +825,8 @@ if __name__ == "__main__":
 
     # If debug_s_detector is True, then this is the output h5 file for the problem examples. 
     # Otherwise, this is a csv file of the pick information.
-    outfilename = f'/home/armstrong/Research/newer/applied_results/YNR.0330' # no file type suffix
-    single_stat_string="YNR*HH" #"B944*EH" # format station*station_type
+    outfilename = f'/home/armstrong/Research/newer/applied_results/B945.0330' # all_picks_0325_0403_CNNproc' # no file type suffix
+    single_stat_string= "B945*EH"#None #"YNR*HH" #"B944*EH" # format station*station_type
     debug_s_detector=False
     debug_inds_file = None #"s_detector_failures/seperateprocessing.PB.B944.20140330T000000Z.badinds.txt"
     
@@ -840,7 +847,7 @@ if __name__ == "__main__":
     min_presigmoid_value = -70
     applier = apply_models(models, center_window, sliding_interval, unet_window_length, pcnn_window_length, 
                             batch_size=batch_size, min_presigmoid_value=min_presigmoid_value)
-    save_probs_file = f"{outfilename}.proba.h5"#None
+    save_probs_file = None #f"{outfilename}.proba.h5"
 
     # Get the unique starting dates of files
     dates = set()
