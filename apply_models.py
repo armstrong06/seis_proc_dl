@@ -668,11 +668,11 @@ class apply_models():
                 # If the pick is close to the beginning, pad the start of the waveform with zeros
                 if ex_start < 0:
                     #pad_zeros = np.zeros((-ex_start, num_channels))
-                    pad = np.ones((-ex_start, num_channels)) * example_proc[0, chan_ind]
+                    pad = np.ones((-ex_start, num_channels)) * example_proc[0, :]
                     example_proc = np.concatenate([pad, example_proc[0:-100]])
                 elif ex_start + window_length > len(cont_data):
                     # try pad = np.ones(correct_size)*cont_data[-1, :]
-                    pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * example_proc[-1, chan_ind]
+                    pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * example_proc[-1, :]
                     #pad_zeros = np.zeros((ex_start + window_length - len(cont_data), num_channels))
                     example_proc= np.concatenate([example_proc[100:], pad])
                 else:

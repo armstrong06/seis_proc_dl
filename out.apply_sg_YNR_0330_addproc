@@ -1,0 +1,42 @@
+nohup: ignoring input
+Working directory: /home/armstrong/Research/git_repos/seis-proc-dl
+Initializing 3 comp P unet...
+Number of parameters in my model: 10818625
+Loading model: /home/armstrong/Research/newer/sg_selected_models/pDetector_model027.pt
+Initializing 3 comp S unet...
+Number of parameters in my model: 10818625
+Loading model: /home/armstrong/Research/newer/sg_selected_models/sDetector_model003.pt
+Initializing 1 comp P unet...
+Number of parameters in my model: 10818241
+Loading model: /home/armstrong/Research/newer/sg_selected_models/oneCompPDetector_model029.pt
+Initializing P picking network...
+Loading model:  /home/armstrong/Research/newer/sg_selected_models/pPicker_model006.pt
+Initializing FM network...
+Loading model:  /home/armstrong/Research/newer/sg_selected_models/fmPicker_model002.pt
+Initializing S picking network...
+Loading model:  /home/armstrong/Research/newer/sg_selected_models/sPicker_model012.pt
+['20140325T000000Z' '20140326T000000Z' '20140327T000000Z'
+ '20140328T000000Z' '20140329T000000Z' '20140330T000000Z'
+ '20140331T000000Z' '20140401T000000Z' '20140402T000000Z'
+ '20140403T000000Z']
+Starting on date from 20140330T000000Z...
+Found 33 station/channel pairs
+['YNR*HH']
+Read in 3 Trace(s) in Stream:
+WY.YNR.01.HHE | 2014-03-30T00:00:00.000000Z - 2014-03-31T00:00:00.000000Z | 100.0 Hz, 8640001 samples
+WY.YNR.01.HHN | 2014-03-30T00:00:00.000000Z - 2014-03-31T00:00:00.000000Z | 100.0 Hz, 8640001 samples
+WY.YNR.01.HHZ | 2014-03-30T00:00:00.000000Z - 2014-03-31T00:00:00.000000Z | 100.0 Hz, 8640001 samples
+Running detectors...
+Zeroing 0 S probabilites suspected to be bad...
+0 other S probabilities that might be bad, but weren't removed
+Found 2901 P arrivals above 0.75 threshold
+Found 1930 S arrivals above 0.75 threshold
+Calculating P pick corrections...
+Traceback (most recent call last):
+  File "apply_models.py", line 922, in <module>
+    ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"])
+  File "apply_models.py", line 733, in get_p_pick_corrections
+    pick_corrections = self.apply_cnn(self.ppicker, "P", cont_data, pick_inds, batch_size, n_classes=1)
+  File "apply_models.py", line 675, in apply_cnn
+    pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * example_proc[-1, chan_ind]
+IndexError: index 2 is out of bounds for axis 1 with size 1
