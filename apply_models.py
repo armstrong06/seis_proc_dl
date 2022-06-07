@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from locale import normalize
 import numpy as np
 from numpy.lib.nanfunctions import nancumsum
 import pandas as pd
@@ -27,8 +28,6 @@ try:
 except ImportError:
     from ._sosfilt import _sosfilt as sosfilt
     from ._sosfilt import _zpk2sos as zpk2sos
-
-sys.path.append('/home/armstrong/Research/')
 
 class detector():
     def __init__(self, phase, model_to_test, num_channels=3, min_presigmoid_value=None):
@@ -401,37 +400,37 @@ class apply_models():
             for example_ind in np.arange(batch_start, batch_end):
                 ex_start = start_indicies[example_ind]
                 example = cont_data[ex_start:ex_start+self.unet_window_length].copy()
-               
-                ### Adding this processing in to this step ###
-                obs_ex = obspy.Stream()
-                for chan in range(example.shape[1]):
-                    tr = obspy.Trace(example[:, chan])
-                    tr.stats.sampling_rate = 100.0
-                    obs_ex += tr
+                # ### Adding this processing in to this step ###
+                # obs_ex = obspy.Stream()
+                # for chan in range(example.shape[1]):
+                #     tr = obspy.Trace(example[:, chan])
+                #     tr.stats.sampling_rate = 100.0
+                #     obs_ex += tr
                     
-                obs_ex.detrend('linear')
-                obs_ex.detrend('demean')
-                obs_ex.taper(0.01, type="cosine")
-                obs_ex.filter("bandpass", freqmin=1.0, freqmax=17.0, corners=2)
+                # obs_ex.detrend('linear')
+                # obs_ex.detrend('demean')
+                # obs_ex.taper(0.01, type="cosine")
+                # obs_ex.filter("bandpass", freqmin=1.0, freqmax=17.0, corners=2)
 
-                example = np.zeros((self.unet_window_length, num_channels))
-                for chan in range(num_channels):
-                    example[:, chan] = obs_ex[chan].data
-                processed_data[example_ind-1, :, :] = example
-                ## END addition ###
+                # example = np.zeros((self.unet_window_length, num_channels))
+                # for chan in range(num_channels):
+                #     example[:, chan] = obs_ex[chan].data
+                # processed_data[example_ind-1, :, :] = example
+                # ## END addition ###
                 
-                ## When just looking at adding BP filter here, had only this line + other processing in self.preprocess_data ###
-                ## example = self.obspy_bandpass(example, freqmin=1.0, freqmax=17.0, corners=2)
+                # ## When just looking at adding BP filter here, had only this line + other processing in self.preprocess_data ###
+                # ## example = self.obspy_bandpass(example, freqmin=1.0, freqmax=17.0, corners=2)
                 
-                # normalize the data for the window 
-                norm_vals = np.max(abs(example), axis=0)
-                norm_vals_inv = np.zeros_like(norm_vals)
-                for nv_ind in range(len(norm_vals)):
-                    nv = norm_vals[nv_ind]
-                    if abs(nv) > 1e-4:
-                        norm_vals_inv[nv_ind] = 1/nv
+                # # normalize the data for the window 
+                # norm_vals = np.max(abs(example), axis=0)
+                # norm_vals_inv = np.zeros_like(norm_vals)
+                # for nv_ind in range(len(norm_vals)):
+                #     nv = norm_vals[nv_ind]
+                #     if abs(nv) > 1e-4:
+                #         norm_vals_inv[nv_ind] = 1/nv
 
-                example = example*norm_vals_inv
+                # example = example*norm_vals_inv
+                example = self.process_waveform(example)
                 batch[example_ind-batch_start, :, :] = example
 
             if num_channels == 3:
@@ -562,15 +561,7 @@ class apply_models():
         for example_ind in [0, n_intervals-1]:
             ex_start = start_indicies[example_ind]
             example = cont_data[ex_start:ex_start+self.unet_window_length].copy()
-            # normalize the data for the window 
-            norm_vals = np.max(abs(example), axis=0)
-            norm_vals_inv = np.zeros_like(norm_vals)
-            for nv_ind in range(len(norm_vals)):
-                nv = norm_vals[nv_ind]
-                if abs(nv) > 1e-4:
-                    norm_vals_inv[nv_ind] = 1/nv
-
-            example = example*norm_vals_inv
+            example = self.process_waveform(example)
             # example = example/np.max(abs(example), axis=0)
             edge_cases[cnt, :, :] = example
             cnt += 1
@@ -653,42 +644,87 @@ class apply_models():
 
         n_picks = len(pick_inds)
         model_outputs = np.zeros((n_picks, n_classes))
+        waveform_halfwidth = (window_length//2)
         batch_start = 0
         while batch_start < n_picks:
             batch_end = np.min([batch_start+batch_size, n_picks])
             batch = np.zeros((batch_end-batch_start, window_length, num_channels))
             # loop over the examples in the batch to pull the windows from the continous data 
             for example_ind in np.arange(batch_start, batch_end):
-                ex_start = int(pick_inds[example_ind]) - window_length//2
+                processing_start = int(pick_inds[example_ind]) - waveform_halfwidth - 100
+                processing_end = processing_start + window_length + 200
+                # If the pick is close to the beginning, pad the start of the waveform with zeros
+                if processing_start < 0:
+                    example_preproc = cont_data[0:processing_end, chan_ind].copy()
+                elif processing_end > len(cont_data):
+                    example_preproc = cont_data[processing_start:, chan_ind].copy()
+                else:
+                    example_preproc = cont_data[processing_start:processing_end, chan_ind].copy()                
+
+                # Don't normalize here - normalize after trimming to the appropriate length 
+                example_proc = self.process_waveform(example_preproc, normalize=False)
+
+                ex_start = int(pick_inds[example_ind]) - waveform_halfwidth
                 # If the pick is close to the beginning, pad the start of the waveform with zeros
                 if ex_start < 0:
                     #pad_zeros = np.zeros((-ex_start, num_channels))
-                    pad = np.ones((-ex_start, num_channels)) * cont_data[0, chan_ind]
-                    example = np.concatenate([pad, cont_data[0:ex_start+window_length, chan_ind].copy()])
+                    pad = np.ones((-ex_start, num_channels)) * example_proc[0, chan_ind]
+                    example_proc = np.concatenate([pad, example_proc[0:-100]])
                 elif ex_start + window_length > len(cont_data):
                     # try pad = np.ones(correct_size)*cont_data[-1, :]
-                    pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * cont_data[-1, chan_ind]
+                    pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * example_proc[-1, chan_ind]
                     #pad_zeros = np.zeros((ex_start + window_length - len(cont_data), num_channels))
-                    example = np.concatenate([cont_data[ex_start:, chan_ind].copy(), pad])
+                    example_proc= np.concatenate([example_proc[100:], pad])
                 else:
-                    example = cont_data[ex_start:ex_start+window_length, chan_ind].copy()
-                # normalize the data for the window 
-                # example = example/np.max(abs(example), axis=0)
-                norm_vals = np.max(abs(example), axis=0)
-                norm_vals_inv = np.zeros_like(norm_vals)
-                for nv_ind in range(len(norm_vals)):
-                    nv = norm_vals[nv_ind]
-                    if abs(nv) > 1e-4:
-                        norm_vals_inv[nv_ind] = 1/nv
+                    example_proc = example_proc[100:-100]
 
-                example = example*norm_vals_inv
+                example_norm = self.normalize(example_proc)
 
-                batch[example_ind-batch_start, :] = example
+                batch[example_ind-batch_start, :] = example_norm
 
             model_outputs[batch_start:batch_end] = model.apply_model_to_batch(batch)
             batch_start += batch_size
 
         return model_outputs
+
+    def process_waveform(self, waveform_in, normalize=True):
+
+        num_channels = waveform_in.shape[-1]
+        obs_ex = obspy.Stream()
+        for chan in range(num_channels):
+            tr = obspy.Trace(waveform_in[:, chan])
+            tr.stats.sampling_rate = 100.0
+            obs_ex += tr
+            
+        obs_ex.detrend('linear')
+        # obs_ex.detrend('demean')
+        obs_ex.taper(0.01, type="cosine")
+        obs_ex.filter("bandpass", freqmin=1.0, freqmax=17.0, corners=2)
+
+        waveform_out = np.zeros_like(waveform_in)
+        for chan in range(num_channels):
+            waveform_out[:, chan] = obs_ex[chan].data
+        
+        ## When just looking at adding BP filter here, had only this line + other processing in self.preprocess_data ###
+        ## example = self.obspy_bandpass(example, freqmin=1.0, freqmax=17.0, corners=2)
+        
+        if normalize:
+            # normalize the data for the window 
+            waveform_out = self.normalize(waveform_out)
+
+        return waveform_out
+    
+    @staticmethod
+    def normalize(waveform):
+        # normalize the data for the window 
+        norm_vals = np.max(abs(waveform), axis=0)
+        norm_vals_inv = np.zeros_like(norm_vals)
+        for nv_ind in range(len(norm_vals)):
+            nv = norm_vals[nv_ind]
+            if abs(nv) > 1e-4:
+                norm_vals_inv[nv_ind] = 1/nv
+
+        return waveform*norm_vals_inv
 
     def get_p_pick_corrections(self, cont_data, pick_inds, batch_size=None):
         if batch_size is None:
@@ -782,8 +818,8 @@ if __name__ == "__main__":
 
     # If debug_s_detector is True, then this is the output h5 file for the problem examples. 
     # Otherwise, this is a csv file of the pick information.
-    outfilename = f'/home/armstrong/Research/newer/applied_results/sg.results.' # no file type suffix
-    single_stat_string=None #"B944*EH" # format station*station_type
+    outfilename = f'/home/armstrong/Research/newer/applied_results/YNR.0330' # no file type suffix
+    single_stat_string="YNR*HH" #"B944*EH" # format station*station_type
     debug_s_detector=False
     debug_inds_file = None #"s_detector_failures/seperateprocessing.PB.B944.20140330T000000Z.badinds.txt"
     
@@ -804,7 +840,7 @@ if __name__ == "__main__":
     min_presigmoid_value = -70
     applier = apply_models(models, center_window, sliding_interval, unet_window_length, pcnn_window_length, 
                             batch_size=batch_size, min_presigmoid_value=min_presigmoid_value)
-    save_probs_file = None
+    save_probs_file = f"{outfilename}.proba.h5"#None
 
     # Get the unique starting dates of files
     dates = set()
@@ -815,7 +851,7 @@ if __name__ == "__main__":
    
     print(dates)
     # Iterate over the dates
-    for date in dates:
+    for date in [dates[5]]:
         print(f"Starting on date from {date}...")
         # Get the station names and a count from data_dir file names for the given date.
         # If only intersted in one station, don't do all that counting
