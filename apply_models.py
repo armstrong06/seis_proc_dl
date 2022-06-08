@@ -672,7 +672,8 @@ class apply_models():
                         pad = np.ones((-ex_start, num_channels)) * example_proc[0, :]
                         example_proc = np.concatenate([pad, example_proc[0:-100]])
                     else:
-                        start_ind = 100 - (processing_start)
+                        # processing start is negative
+                        start_ind = 100 + (processing_start)
                         example_proc = example_proc[start_ind:-100]
                 elif processing_end > len(cont_data): #ex_start + window_length > len(cont_data):
                     # try pad = np.ones(correct_size)*cont_data[-1, :]
@@ -825,8 +826,8 @@ if __name__ == "__main__":
 
     # If debug_s_detector is True, then this is the output h5 file for the problem examples. 
     # Otherwise, this is a csv file of the pick information.
-    outfilename = f'/home/armstrong/Research/newer/applied_results/B945.0330' # all_picks_0325_0403_CNNproc' # no file type suffix
-    single_stat_string= "B945*EH"#None #"YNR*HH" #"B944*EH" # format station*station_type
+    outfilename = f'/home/armstrong/Research/newer/applied_results/YGV.0403'#picks_0330_0403' # all_picks_0325_0403_CNNproc' # no file type suffix
+    single_stat_string= "YGC*EH"#None #"YNR*HH" #"B944*EH" # format station*station_type
     debug_s_detector=False
     debug_inds_file = None #"s_detector_failures/seperateprocessing.PB.B944.20140330T000000Z.badinds.txt"
     
@@ -856,9 +857,10 @@ if __name__ == "__main__":
         dates.add(date[1])
     dates = np.sort(list(dates))
    
+    dates = dates[-1:] #dates[5:]
     print(dates)
     # Iterate over the dates
-    for date in [dates[5]]:
+    for date in dates:
         print(f"Starting on date from {date}...")
         # Get the station names and a count from data_dir file names for the given date.
         # If only intersted in one station, don't do all that counting

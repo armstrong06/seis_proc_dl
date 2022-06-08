@@ -32,11 +32,6 @@ Zeroing 0 S probabilites suspected to be bad...
 Found 2901 P arrivals above 0.75 threshold
 Found 1930 S arrivals above 0.75 threshold
 Calculating P pick corrections...
-Traceback (most recent call last):
-  File "apply_models.py", line 922, in <module>
-    ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"])
-  File "apply_models.py", line 733, in get_p_pick_corrections
-    pick_corrections = self.apply_cnn(self.ppicker, "P", cont_data, pick_inds, batch_size, n_classes=1)
-  File "apply_models.py", line 675, in apply_cnn
-    pad = np.ones((ex_start + window_length - len(cont_data), num_channels)) * example_proc[-1, chan_ind]
-IndexError: index 2 is out of bounds for axis 1 with size 1
+Calculating first motions...
+Calculating S pick corrections...
+Saving results to /home/armstrong/Research/newer/applied_results/YNR.0330.csv
