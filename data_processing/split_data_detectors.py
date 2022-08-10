@@ -14,7 +14,7 @@ np.random.seed(49230)
 class SplitDetectorData():
     # TODO: I do not know that this is the best way to implement this class
 
-    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, outfile_pref=None, target_shrinkage=None,
+    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, outfile_pref=None, target_shrinkage=None,
                  pick_sample=None, normalize_seperate=True): #, reorder_waveforms=False):
         self.window_duration = window_duration
         self.dt = dt
@@ -24,6 +24,7 @@ class SplitDetectorData():
         self.target_shrinkage = target_shrinkage # make it so that we classifiy at this fraction of central points in the window
         self.pick_sample = pick_sample
         self.normalize_seperate = normalize_seperate
+        self.phase_type = phase_type
         #self.reorder = reorder_waveforms # Switch the first and last channels of data - Want ENZ
 
         if self.outfile_pref is not None:
@@ -137,12 +138,14 @@ class SplitDetectorData():
 
         assert meta_df.shape[0] == X.shape[0], 'number of waveforms dont match csv'
         assert meta_df.shape[0] == Y.shape[0], 'number of responses dont match csv'
-        self.__set_n_signal_waveforms(len(meta_df))
+        # self.__set_n_signal_waveforms(len(meta_df))
 
         print("Input data shape:", X.shape, Y.shape)
 
         print("Sampling signal rows...")
         train_rows, test_rows = self.__sample_on_evid(meta_df, train_frac)
+        
+        self.__set_n_signal_waveforms(len(train_rows), len(test_rows))
 
         validate_rows = None
         if (test_frac > 0 and test_frac < 1):
@@ -204,7 +207,8 @@ class SplitDetectorData():
         
         print("Samping noise rows...")
         n_noise = X_noise.shape[0]
-        noise_train_rows, noise_test_rows = train_test_split(np.arange(0, n_noise-1, 1), 
+        # Changed np.arange(0, n_noise-1, 1) becuase I don't think the -1 is necessary
+        noise_train_rows, noise_test_rows = train_test_split(np.arange(0, n_noise, 1), 
                                                             train_size = noise_train_frac)
         noise_validate_rows = None
         if (test_frac > 0 and test_frac < 1):
@@ -259,8 +263,8 @@ class SplitDetectorData():
             print(f"Making output directory {dir}")
             os.mkdir(dir)
 
-    def __set_n_signal_waveforms(self, n_signal_waveforms):
-        self.n_signal_waveforms = n_signal_waveforms * self.n_duplicate_train
+    def __set_n_signal_waveforms(self, n_train_signal, n_test_signal):
+        self.n_signal_waveforms = n_train_signal * self.n_duplicate_train + n_test_signal
 
     def make_filename(self, split, file_type, is_noise=False):
         """Creates a filename for different data splits following a common naming scheme"""
@@ -425,12 +429,13 @@ class SplitDetectorData():
         assert X_new.shape[0] == Y_new.shape[0] and Y_new.shape[0] == T_index.shape[0], "New sizes do not match"
         return (X_new, Y_new, T_index)
 
-    def __add_stead_pick_quality(self, meta_df):
-        zero_bound = 0.98
-        one_bound = 0.6
-        meta_df.loc[meta_df.s_weight >= zero_bound, "pick_quality"] = 1.0
-        meta_df.loc[(meta_df.s_weight < zero_bound) & (meta_df.s_weight >= one_bound), "pick_quality"] = 0.75
-        meta_df.loc[(meta_df.s_weight < one_bound) | (np.isnan(meta_df.s_weight)), "pick_quality"] = 0.5
+    def __add_stead_pick_quality(self, meta_df, zero_bound=0.98, one_bound=0.6):
+        weight_name = "p_weight"
+        if self.phase_type == "S":
+            weight_name = "s_weight"
+        meta_df.loc[meta_df[weight_name] >= zero_bound, "pick_quality"] = 1.0
+        meta_df.loc[(meta_df[weight_name] < zero_bound) & (meta_df[weight_name] >= one_bound), "pick_quality"] = 0.75
+        meta_df.loc[(meta_df[weight_name] < one_bound) | (np.isnan(meta_df[weight_name])), "pick_quality"] = 0.5
 
         print(f'Pick_quality counts when using zero_bound {zero_bound} and one_bound {one_bound}:')
         print(meta_df.pick_quality.value_counts())
@@ -473,6 +478,7 @@ class SplitDetectorData():
         if len(noise_rows) < self.n_signal_waveforms:
             rows_to_sample = np.full(len(X_noise), 1)
             rows_to_sample[noise_rows] = 0
+            # TODO: add a seed to this random.choice
             noise_rows = np.append(noise_rows, np.random.choice(np.arange(0, len(X_noise))[np.where(rows_to_sample)], self.n_signal_waveforms-len(noise_rows)))
             noise_rows = np.sort(noise_rows)
 
