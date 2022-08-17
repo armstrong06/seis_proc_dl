@@ -71,7 +71,8 @@ class MultiModelEval():
             T_est_index = pick_info[0]
 
             for i in range(len(T_test)):
-                # Removing this becuase I want to be able to calculate confusion matrices after the fact
+                # Removing this becuase I want to be able to calculate confusion matrices after the fact 
+                # - don't know if I actually need to do this
                 # if (T_test[i] < 0):
                 #     break
                 resids.append({'model': epoch,

@@ -93,7 +93,7 @@ def plot_residuals(df_resid, probability = 0.905, ylim=(-20, 20)):
 
 def plot_residual_hist(df_valid_resid, opt_model):
     plt.figure(figsize=(8,6))
-    plt.hist(df_valid_resid[df_valid_resid['epoch'] == opt_model].residual, bins=np.arange(-50, 50, 1), edgecolor='black')
+    plt.hist(df_valid_resid[(df_valid_resid['epoch'] == opt_model) & (df_valid_resid["true_lag"] > -1)].residual, bins=np.arange(-50, 50, 1), edgecolor='black')
     plt.title("P Pick Residual Distribution for Epoch %d"%(opt_model+1))
     plt.xlabel("Pick Residual Samples")
     plt.ylabel("Counts")
