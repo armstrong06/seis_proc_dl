@@ -11,7 +11,7 @@ is_first_motion_data = True
 waveform_halfwidth = 3
 
 processing_function = uuss.OneComponentPicker.ZCNN.ProcessData()
-#processing_function = uuss.OneComponentPicker.ZCNN.ProcessData()
+# processing_function = uuss.ThreeComponentPicker.ZRUNet.ProcessData()
 if is_first_motion_data:
     processing_function = uuss.FirstMotion.FMNet.ProcessData()
 
