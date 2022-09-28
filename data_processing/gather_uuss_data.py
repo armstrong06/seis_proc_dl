@@ -224,7 +224,7 @@ class ThreeComponentGatherer(BaseGatherDataUUSS):
         if waveforms[0].start_time != waveforms[1].start_time != waveforms[2].start_time:
             print("Start times do not match", waveforms[0].start_time, waveforms[1].start_time,
                   waveforms[2].start_time)
-            # return [None, None, None]
+            # return [None, None, None] # TODO: Should this be uncommented? 
 
         # Impossible to hit this assertion because of your above if statement
         assert 1. / waveforms[0].sampling_rate == 1. / waveforms[1].sampling_rate == 1. / waveforms[

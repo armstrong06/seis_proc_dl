@@ -591,14 +591,14 @@ class apply_models():
         p_edge_case_probs, s_edge_case_probs = self.apply_detectors_edgecases(cont_data, n_intervals, start_indicies, num_channels=num_channels)
         
         all_p_posterior_probs = self.concat_probs(p_edge_case_probs, inner_p_posterior_probs, npts)
-        # pick_widths are forced to be atleast 20, so probably not a good indicator of quality, unless they are large 
-        p_pick_probs, p_pick_inds, p_pick_widths = self.p_detector3c.sliding_window_phase_arrival_estimator(all_p_posterior_probs, 100, thresh=p_thresh)
+        # pick_widths are forced to be atleast 20, so probably not a good indicator of quality, unless they are large (not in updated)
+        p_pick_probs, p_pick_inds, p_pick_widths = self.p_detector3c.sliding_window_phase_arrival_estimator_updated(all_p_posterior_probs, 100, thresh=p_thresh)
         ppick_dict = self.detector_results_to_dict(p_pick_probs, p_pick_inds, p_pick_widths)
         print(f'Found {len(p_pick_inds)} P arrivals above {p_thresh} threshold')
 
         if num_channels == 3:
             all_s_posterior_probs = self.concat_probs(s_edge_case_probs, inner_s_posterior_probs, npts)
-            s_pick_probs, s_pick_inds, s_pick_widths = self.s_detector.sliding_window_phase_arrival_estimator(all_s_posterior_probs, 100, thresh=s_thresh)
+            s_pick_probs, s_pick_inds, s_pick_widths = self.s_detector.sliding_window_phase_arrival_estimator_updated(all_s_posterior_probs, 100, thresh=s_thresh)
             spick_dict = self.detector_results_to_dict(s_pick_probs, s_pick_inds, s_pick_widths)
             print(f'Found {len(s_pick_inds)} S arrivals above {s_thresh} threshold')
             if save_probs is not None:
