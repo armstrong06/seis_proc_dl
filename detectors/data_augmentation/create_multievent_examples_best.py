@@ -276,6 +276,8 @@ class CreateMEW():
         # T = h5["Pick_index"][:]
         h5.close()
 
+        if len(X.shape) < 3:
+            X = np.expand_dims(X, axis=2)
         return (X)
 
     @staticmethod
@@ -297,14 +299,14 @@ class CreateMEW():
         large_max = np.max(abs(x_large))
         small_max = np.max(abs(x_small))
 
-        print("Large event max amplitude", large_max)
-        print("Small event max amplituide", small_max)
+        # print("Large event max amplitude", large_max)
+        # print("Small event max amplituide", small_max)
         new_small_max = large_max * 1 / 10 ** (mag_diff)
-        print("reduce small event amplitude by", 10 ** mag_diff)
-        print("new max of small event should be", new_small_max)
+        # print("reduce small event amplitude by", 10 ** mag_diff)
+        # print("new max of small event should be", new_small_max)
         rescale_factor = small_max / new_small_max
         x_small_rescaled = x_small / rescale_factor
-        print("new max is", np.max(abs(x_small_rescaled)))
+        # print("new max is", np.max(abs(x_small_rescaled)))
         if to_plot:
             fig, axes = plt.subplots(3)
             axes[0].plot(range(x_small.shape[0]), x_small[:, 0])
@@ -318,12 +320,14 @@ class CreateMEW():
 
         return x_small_rescaled, x_small, rescale_factor
 
-    @staticmethod
     def get_random_shifts(self, sr_dist):
          ##### Randomly shift the waveforms
-        min_sep = np.max([self.min_sep_req, int(sr_dist / 6 * 100) + 50])
+         # If the SR-based min_sep is too big, reduce the size
+        min_sep_ub = np.min([int(sr_dist / 6 * 100) + 50, self.wf_length-self.min_wf2-self.center_window_lb-50])
+        min_sep = np.max([self.min_sep_req, min_sep_ub])
 
-        max_first_event_sample = np.min([self.wf_length - min_sep - self.min_wf2, self.center_window_ub - self.wf1_ub_buffer])
+        max_first_event_sample = np.min([(self.wf_length - self.min_wf2) - min_sep ,
+                                         self.center_window_ub - self.wf1_ub_buffer])
         first_event_sample = np.random.randint(self.center_window_lb, max_first_event_sample)
 
         # Keep the second event boxcar out of the center for easier testing
@@ -333,13 +337,16 @@ class CreateMEW():
 
         # Shift for moving the second pick into the center and the first in front of the center
         # Keep the first event boxcar out of the center for easier testing
-        random_shift = np.random.randint(first_event_sample - (self.center_window_lb - self.boxcar_width - 1),
-                                         first_event_sample - self.boxcar_width - 1)
+        random_shift_lb = np.max([first_event_sample - (self.center_window_lb - self.boxcar_width - 1),
+                                   second_event_sample - (self.center_window_ub - 1)])
+        random_shift_ub = np.min([first_event_sample - self.boxcar_width - 1, second_event_sample - self.center_window_lb])
+        random_shift = np.random.randint(random_shift_lb, random_shift_ub)
 
-        assert first_event_sample >= self.center_window_lb and \
+        assert (first_event_sample >= self.center_window_lb and first_event_sample <= self.center_window_ub) and \
                second_event_sample > self.center_window_ub, "WF1 should be the only one in the center"
         assert first_event_sample - random_shift < self.center_window_lb and \
-               second_event_sample - random_shift >= self.center_window_lb, "WF2 should be the only one in the center"
+               (second_event_sample - random_shift >= self.center_window_lb and \
+                second_event_sample - random_shift <= self.center_window_ub), "WF2 should be the only one in the center"
 
         return first_event_sample, second_event_sample, random_shift
 
@@ -358,15 +365,16 @@ class CreateMEW():
         wf2_max = np.max(abs(wf2))
         wf2_norm = wf2 / wf2_max
 
-        # TODO: should I demean? They already seem to be pretty small
+        # Remove the mean from each trace
         wf1_norm = wf1_norm - np.mean(wf1_norm, axis=0)
         wf2_norm = wf2_norm - np.mean(wf2_norm, axis=0)
 
+        rescale_factor = 1.0
         # Rescale the magnitudes by comparing the maximum amplitude of the waveform
         if mag_diff > 0:
-            wf2_norm, x_small, rescale_factor = self.rescale_waveform(wf1_norm, wf2_norm, mag_diff, to_plot=False)
+            wf2_norm, x_small_original, rescale_factor = self.rescale_waveform(wf1_norm, wf2_norm, mag_diff, to_plot=False)
         elif mag_diff < 0:
-            wf1_norm, x_small, rescale_factor = self.rescale_waveform(wf2_norm, wf1_norm, abs(mag_diff), to_plot=False)
+            wf1_norm, x_small_original, rescale_factor = self.rescale_waveform(wf2_norm, wf1_norm, abs(mag_diff), to_plot=False)
 
         return wf1_norm, wf2_norm, rescale_factor
 
@@ -418,13 +426,14 @@ class CreateMEW():
         # Start wf2_buffer before the pick sample
         wf2_padded[second_event_sample - self.wf2_pre_p:] = wf2_taper
 
-        combined_wf = wf1_trim + wf2_padded
+        #combined_wf = wf1_trim + wf2_padded
+        combined_wf = np.add(wf1_trim, wf2_padded)
         boxcar = np.zeros(len(wf1_trim))
         boxcar[first_event_sample - self.boxcar_width:first_event_sample + self.boxcar_width + 1] = 1
         boxcar[second_event_sample - self.boxcar_width:second_event_sample + self.boxcar_width + 1] = 1
 
-        combined_wf1_centered = combined_wf[0:self.wf_length]
-        combined_wf2_centered = combined_wf[random_shift:random_shift + self.wf_length]
+        combined_wf1_centered = np.copy(combined_wf)[0:self.wf_length]
+        combined_wf2_centered = np.copy(combined_wf)[random_shift:random_shift + self.wf_length]
 
         boxcar_wf1_centered = boxcar[0:self.wf_length]
         boxcar_wf2_centered = boxcar[random_shift:random_shift + self.wf_length]
@@ -435,9 +444,9 @@ class CreateMEW():
         combined_wf2_centered_norm = self.normalize_waveforms(combined_wf2_centered)
 
         if plot_info is not None:
-            self.plot_waveforms(wf1_trim, wf2_trim, wf2_padded, combined_wf, combined_wf1_centered_norm,
-                                combined_wf2_centered_norm, boxcar, boxcar_wf1_centered, boxcar_wf2_centered, plot_info[0],
-                                plot_info[1])
+            self.plot_waveforms(first_event_sample, second_event_sample, wf1_trim, wf2_trim, wf2_padded, combined_wf,
+                                combined_wf1_centered_norm, combined_wf2_centered_norm, boxcar, boxcar_wf1_centered,
+                                boxcar_wf2_centered, plot_info[0], plot_info[1])
 
         return combined_wf1_centered_norm, boxcar_wf1_centered, combined_wf2_centered_norm, boxcar_wf2_centered
 
@@ -466,8 +475,9 @@ class CreateMEW():
 
         return x_new
 
-    def plot_waveforms(self, wf1_trim, wf2_trim, wf2_padded, combined_wf, combined_wf1_centered_norm, combined_wf2_centered_norm,
-                       boxcar, boxcar_wf1_centered, boxcar_wf2_centered, title, output_name, taper_plot_length=50):
+    def plot_waveforms(self, first_event_sample, second_event_sample, wf1_trim, wf2_trim, wf2_padded, combined_wf,
+                       combined_wf1_centered_norm, combined_wf2_centered_norm, boxcar, boxcar_wf1_centered,
+                       boxcar_wf2_centered, title, output_name, taper_plot_length=50):
 
         n_channels = wf1_trim.shape[1]
         bbox = dict(facecolor="white", alpha=0.5, edgecolor="white")
@@ -478,7 +488,7 @@ class CreateMEW():
 
         ax = ax.flatten(order="F")
 
-        ax[0].axvline(self.first_event_sample, color="r")
+        ax[0].axvline(first_event_sample, color="r")
         if n_channels ==3:
             ax[0].plot(range(len(wf1_trim)), wf1_trim[:, 0], label="E")
             ax[0].plot(range(len(wf1_trim)), wf1_trim[:, 1], label="N")
@@ -497,13 +507,13 @@ class CreateMEW():
         # ax[2].plot(np.arange(0, center_window_lb+wf2_buffer), st[2].data[:center_window_lb+wf2_buffer], label="tapered")
         ax[2].plot(np.arange(0, taper_plot_length), wf2_trim[:taper_plot_length, -1], label="untapered")
         ax[2].plot(np.arange(0, taper_plot_length),
-                   wf2_padded[self.second_event_sample-self.wf2_pre_p:self.second_event_sample+taper_plot_length-self.wf2_pre_p, -1],
+                   wf2_padded[second_event_sample-self.wf2_pre_p:second_event_sample+taper_plot_length-self.wf2_pre_p, -1],
                    label="tapered")
         ax[2].axvline(self.wf2_pre_p, color="r")
-        ax[2].legend();
+        ax[2].legend(loc="upper right");
         ax[2].text(0.02, 0.85, "Wf2 taper", transform=ax[2].transAxes, bbox=bbox)
 
-        ax[3].axvline(self.second_event_sample, color="r")
+        ax[3].axvline(second_event_sample, color="r")
         ax[3].plot(range(len(wf2_padded)), wf2_padded)
         ax[3].text(0.02, 0.85, "Wf2 zero pad", transform=ax[3].transAxes, bbox=bbox)
 
@@ -523,17 +533,17 @@ class CreateMEW():
         ax[6].axvline(self.center_window_lb, color="gray", linestyle="--")
         ax[6].axvline(self.center_window_ub, color="gray", linestyle="--")
 
-        wf2_zoom_lb = self.second_event_sample - 100
-        wf2_zoom_ub = self.second_event_sample + 100
-        ax[7].axvline(self.second_event_sample, color="red", alpha=0.5)
+        wf2_zoom_lb = second_event_sample - 100
+        wf2_zoom_ub = second_event_sample + 100
+        ax[7].axvline(second_event_sample, color="red", alpha=0.5)
         ax[7].plot(range(wf2_zoom_lb, wf2_zoom_ub), combined_wf1_centered_norm[wf2_zoom_lb:wf2_zoom_ub])
         ax[7].plot(range(wf2_zoom_lb, wf2_zoom_ub), boxcar_wf1_centered[wf2_zoom_lb:wf2_zoom_ub])
         ax[7].text(0.02, 0.1, "Combined - wf2 pick", transform=ax[7].transAxes, bbox=bbox)
 
-        plt.savefig(output_name, facecolor="white")
+        plt.savefig(output_name) #, facecolor="white")
         plt.close()
 
-    def combine_waveforms(self, pairs_df, X, outfile_pref, figdir=None):
+    def combine_mew_waveforms(self, pairs_df, X, outfile_pref, figdir=None):
         new_catalog = []
         comb_df = [["evid1", "evid2", "network", "station", "magnitude1", "magnitude1_type", "magnitude2",
                     "magnitude2_type", "wf1_T1", "wf1_T2", "wf2_shift", "rescale_factor"]]
@@ -545,14 +555,16 @@ class CreateMEW():
         for index in np.arange(0, len(pairs_df)-1, 2):
             row1 = pairs_df.iloc[index]
             row2 = pairs_df.iloc[index+1]
-            ind1 = row1["original_row"]
-            ind2 = row2["original_row"]
+            ind1 = row1["original_rows"]
+            ind2 = row2["original_rows"]
+            assert row1["station"] == row2["station"], "Stations are not the same"
 
-            plot_title = None
-            if (figdir is not None) and cnt % 100 == 0:
-                plot_title =  f'{row1["network"]}.{row1["station"]} {row1["evid"]}-{row1["magnitude"]} {row1["magnitude_type"]} ' \
+            plot_info = None
+            if (figdir is not None) and cnt % 10 == 0:
+                plot_title =  f'{row1["network"]}.{row1["station"]} {row1["evid"]}-{row1["magnitude"]} {row1["magnitude_type"]}, ' \
                               f'{row2["evid"]}-{row2["magnitude"]} {row2["magnitude_type"]}'
                 plot_name = f"{figdir}/{row1['network']}_{row1['station']}_{row1['evid']}_{row2['evid']}.png"
+                plot_info = [plot_title, plot_name]
 
             wf1 = X[ind1, :, :].copy()
             wf2 = X[ind2, :, :].copy()
@@ -567,7 +579,7 @@ class CreateMEW():
             # Combine waveforms and create boxcars - plot if necessary
             combined_wf1_centered_norm, boxcar_wf1_centered, combined_wf2_centered_norm, \
             boxcar_wf2_centered = self.join_waveform_pairs(wf1_norm, wf2_norm, first_event_sample,
-                                                           second_event_sample, random_shift, plot_info=[plot_title, plot_name])
+                                                           second_event_sample, random_shift, plot_info=plot_info)
 
             # Save information for catalog
             new_catalog.append(row1)
@@ -578,15 +590,15 @@ class CreateMEW():
                             second_event_sample, random_shift, rescale_factor])
 
             # Add first combined waveform to file
-            Y_aug[cnt, :] = boxcar_wf1_centered
+            Y_aug[cnt, :] = np.expand_dims(boxcar_wf1_centered, axis=1)
             X_aug[cnt, :, :] = combined_wf1_centered_norm
             T_aug[cnt, 0] = first_event_sample
             T_aug[cnt, 1] = second_event_sample
-            # Add second combined waveform to file
-            Y_aug[cnt+1, :] = boxcar_wf2_centered
+            # Add second combined waveform to file - Put the pick in the center in Pick_index (T[:, 0])
+            Y_aug[cnt+1, :] = np.expand_dims(boxcar_wf2_centered, axis=1)
             X_aug[cnt+1, :, :] = combined_wf2_centered_norm
-            T_aug[cnt+1, 0] = first_event_sample - random_shift
-            T_aug[cnt+1, 1] = second_event_sample - random_shift
+            T_aug[cnt+1, 0] = second_event_sample - random_shift
+            T_aug[cnt+1, 1] = first_event_sample - random_shift
             cnt += 2
 
         print(X_aug.shape, Y_aug.shape, T_aug.shape, cnt)
@@ -600,7 +612,8 @@ if __name__ == "__main__":
 
     pref_entire_cat = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector"
     pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector/onecomp_p_resampled_10s"
-    outpref = "%s/synthetic_multievent_waveforms"%pref
+    #outpref = f"{pref}/synthetic_multievent_waveforms"
+    outpref = "tmp"
 
     outfile_pref = f"{outpref}/{split_type}P.10s.1dup"
     figdir = f"{outpref}/{split_type}_figs"
@@ -623,7 +636,7 @@ if __name__ == "__main__":
     # Read in untrimmed/unnormalized data
     X = mew.read_h5file(f"{pref_entire_cat}/current_earthquake_catalog_1c.h5")
 
-    # Read in split dataset
+    # Read in split catalog
     df = pd.read_csv(f"{pref}/currenteq.{split_type}.10s.1dup.csv", dtype={'location'  : object})
     df = df[df.phase == "P"]
 
@@ -639,12 +652,12 @@ if __name__ == "__main__":
 
         mew.plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
                                     figdir="%s/3C_catalog_dist.jpg"%figdir)
-        df_pairs, sampled_dist = mew.generate_sampling_distribution(df_clean, n_waveforms=40000, z_indicator="channelz",
+        df_pairs, sampled_dist = mew.generate_sampling_distribution(df_clean, n_waveforms=1000, z_indicator="channelz",
                                                                     min_sep=min_magnitude_sep, max_sep=max_magnitude_sep)
         mew.plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
                                     figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
         # combine the waveforms
-        mew.combine_waveforms(df_pairs, X, outfile_pref, figdir=figdir)
+        mew.combine_mew_waveforms(df_pairs, X, outfile_pref, figdir=figdir)
     elif split_type == "validate":
         ################ Validation ################
         # Only use this for validation/test data because much smaller size
@@ -661,4 +674,4 @@ if __name__ == "__main__":
         mew.plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
                                     figdir="%s/3C_catalog_dist.jpg"%figdir)
         #combine the waveforms
-        mew.combine_waveforms(df_match_dist, X, outfile_pref, figdir=figdir)
+        mew.combine_mew_waveforms(df_match_dist, X, outfile_pref, figdir=figdir)
