@@ -315,6 +315,8 @@ class SplitDetectorData():
                     lrand = True, for_python=True, meta_for_boxcar=None, boxcar_widths={0: 21, 1: 31, 2: 51}):
         # Determine the sizes of the data
         print("initial", X.shape, Y.shape)
+        print("Using boxcar widths", boxcar_widths)
+
         n_obs = X.shape[0]
         n_samples = X.shape[1]
         n_comps = X.shape[2]

@@ -12,6 +12,9 @@ train_frac = 0.8
 noise_train_frac = 0.8
 test_frac = 0.5
 max_pick_shift = 250
+phase_type ='S'
+
+boxcar_widths={0: 51, 1: 51, 2: 51}
 
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive'
 ys_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseYellowstoneWaveformsPermuted.h5'
@@ -45,12 +48,12 @@ extract_events_params = {"bounds":bounds, "name":"NGB"}
 ## Current Earthquakes
 h5_filename = f'{pref}/S_current_earthquake_catalog.h5'
 meta_file = f'{pref}/S_current_earthquake_catalog.csv'
-outpref = f"{pref}/S_resampled_10s/currenteq."
+outpref = f"{pref}/NEW_S_resampled_10s/currenteq."
 
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, outpref)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file)
 spliter.split_signal(train_frac, test_frac, extract_events_params=extract_events_params)
-spliter.process_signal()
+spliter.process_signal(boxcar_widths=boxcar_widths)
 
 spliter.load_noise_data([ys_noise_h5_filename, magna_noise_h5_filename])
 spliter.split_noise(noise_train_frac, test_frac)
@@ -65,10 +68,10 @@ ceq_train_noise_df, ceq_test_noise_df, ceq_validate_noise_df = spliter.return_no
 # Blast catalog
 h5_filename = f'{pref}/S_current_blast_catalog_3c.h5'
 meta_file = f'{pref}/S_current_blast_catalog_3c.csv'
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type)
 spliter.load_signal_data(h5_filename, meta_file, min_training_quality=0.5)
 spliter.split_signal(0.4, 0.96, extract_events_params=None)
-spliter.process_signal(boxcar_widths={0: 31, 1: 51, 2: 71})
+spliter.process_signal(boxcar_widths=boxcar_widths)
 cbl_train,cbl_test,cbl_validate = spliter.return_signal()
 cbl_train_df, cbl_test_df, cbl_validate_df = spliter.return_signal_meta()
 
@@ -76,10 +79,10 @@ cbl_train_df, cbl_test_df, cbl_validate_df = spliter.return_signal_meta()
 h5_filename = f'{pref}/S_historical_earthquake_catalog.h5'
 meta_file = f'{pref}/S_historical_earthquake_catalog.csv'
 outpref = f"{pref}/S_resampled_10s/combined."
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, outfile_pref=outpref)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file, min_training_quality=0.75)
 spliter.split_signal(0.2, 0.98, extract_events_params=None)
-spliter.process_signal(boxcar_widths={0: 31, 1: 51, 2: 71})
+spliter.process_signal(boxcar_widths=boxcar_widths)
 heq_train,heq_test,heq_validate = spliter.return_signal()
 heq_train_df, heq_test_df, heq_validate_df = spliter.return_signal_meta()
 
@@ -94,6 +97,11 @@ def concate_splits(ceq_split, ceq_split_df, cbl_split, cbl_split_df, heq_split, 
         T = np.concatenate([T, noise_split[2]])
     if noise_split_df is not None:
         df = pd.concat([df, noise_split_df])
+
+    print("Current earthquake duplicates", n_duplicate_train)
+    print("Current earthquakes:", len(ceq_split_df), (len(ceq_split_df)/len(df))*100)
+    print("Historical earthquakes:", len(heq_split_df), (len(heq_split_df)/len(df))*100)
+    print("Current Quarry Blasts:", len(cbl_split_df), (len(cbl_split_df)/len(df))*100)
 
     return [X, y, T], df
 
