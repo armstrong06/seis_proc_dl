@@ -226,7 +226,7 @@ class CreateMEW():
         df["xind"] = df.index
 
         if quality_req is not None:
-            print("Applying quality requirement...")
+            print(f"Keep only {quality_req} quality picks...")
             print(df.shape)
             if np.isin("pick_quality", df.columns):
                 df = df[np.isin(df["pick_quality"], quality_req)]
@@ -235,7 +235,7 @@ class CreateMEW():
             print(df.shape)
 
         if sr_dist_max is not None:
-            print("Applying source-receiver distance requirement...")
+            print(f"Applying source-receiver distance requirement of {sr_dist_max}")
             print(df.shape)
             df = df[df["source_receiver_distance"] < sr_dist_max]
             print(df.shape)
@@ -250,7 +250,7 @@ class CreateMEW():
             close_event_df = stat_df[np.isin(stat_df["sind"],match_inds, invert=False)].sort_values("sind")
             return match_df, close_event_df
 
-        print("Removing events with magnitude less than set threshold...")
+        print(f"Removing events with magnitude less than {min_mag}..")
         df = df[df["magnitude"] > min_mag]
         print(df.shape)
 
@@ -266,6 +266,9 @@ class CreateMEW():
         close_event_df = pd.concat(close_event_df).drop("sind", axis=1)
 
         print(new_df.shape)
+        print("Catalog close events:", close_event_df.shape)
+        print("Catalog close events - no arrival time duplicates",
+              close_event_df.drop_duplicates(subset=["station", "arrival_time"]).shape)
         return new_df, close_event_df
 
     @staticmethod
@@ -543,7 +546,7 @@ class CreateMEW():
         plt.savefig(output_name) #, facecolor="white")
         plt.close()
 
-    def combine_mew_waveforms(self, pairs_df, X, outfile_pref, figdir=None):
+    def combine_mew_waveforms(self, pairs_df, X, outfile_pref, figdir=None, figure_interval=100):
         new_catalog = []
         comb_df = [["evid1", "evid2", "network", "station", "magnitude1", "magnitude1_type", "magnitude2",
                     "magnitude2_type", "wf1_T1", "wf1_T2", "wf2_shift", "rescale_factor"]]
@@ -560,7 +563,7 @@ class CreateMEW():
             assert row1["station"] == row2["station"], "Stations are not the same"
 
             plot_info = None
-            if (figdir is not None) and cnt % 10 == 0:
+            if (figdir is not None) and cnt % figure_interval == 0:
                 plot_title =  f'{row1["network"]}.{row1["station"]} {row1["evid"]}-{row1["magnitude"]} {row1["magnitude_type"]}, ' \
                               f'{row2["evid"]}-{row2["magnitude"]} {row2["magnitude_type"]}'
                 plot_name = f"{figdir}/{row1['network']}_{row1['station']}_{row1['evid']}_{row2['evid']}.png"
@@ -613,7 +616,7 @@ if __name__ == "__main__":
     pref_entire_cat = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector"
     pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector/onecomp_p_resampled_10s"
     #outpref = f"{pref}/synthetic_multievent_waveforms"
-    outpref = "tmp"
+    outpref = f"{pref}/synthetic_multievent_waveforms"
 
     outfile_pref = f"{outpref}/{split_type}P.10s.1dup"
     figdir = f"{outpref}/{split_type}_figs"
@@ -626,6 +629,11 @@ if __name__ == "__main__":
 
     mew = CreateMEW(1008, 250, 25)
 
+    # Print mew attributes
+    attrs = vars(mew)
+    print(', '.join("%s: %s" % item for item in attrs.items()))
+
+    n_waveforms = 40000
     min_magnitude_sep = 0.1
     max_magnitude_sep = 1.5
 
@@ -644,34 +652,48 @@ if __name__ == "__main__":
     # Clean up the dataset
     df_clean, catalog_close_event_df = mew.clean_df(df, pick_indicator="arrival_time", quality_req=[1.0, 0.75], sr_dist_max=35)
 
+    print(f"Minimum magnitude separation: -{min_magnitude_sep}")
+    print(f"Maximum magnitude separation: {max_magnitude_sep}")
+    
+    mew.plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
+                                    figdir="%s/filtered_training_dist.jpg" % figdir)
+
+    mew.plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+                                    figdir="%s/catalog_dist.jpg" % figdir)
+    df_pairs, sampled_dist = mew.generate_sampling_distribution(df_clean, n_waveforms=n_waveforms, z_indicator="channelz",
+                                                                min_sep=min_magnitude_sep, max_sep=max_magnitude_sep)
+    mew.plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
+                                    figdir="%s/sampled_filtered_training_dist.jpg" % figdir)
+    # combine the waveforms
+    mew.combine_mew_waveforms(df_pairs, X, outfile_pref, figdir=figdir, figure_interval=100)
 
     ################ Training ################
-    if split_type == "train":
-        mew.plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
-                                  figdir="%s/filtered_training_dist.jpg"%figdir)
-
-        mew.plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-                                    figdir="%s/3C_catalog_dist.jpg"%figdir)
-        df_pairs, sampled_dist = mew.generate_sampling_distribution(df_clean, n_waveforms=1000, z_indicator="channelz",
-                                                                    min_sep=min_magnitude_sep, max_sep=max_magnitude_sep)
-        mew.plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
-                                    figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
-        # combine the waveforms
-        mew.combine_mew_waveforms(df_pairs, X, outfile_pref, figdir=figdir)
-    elif split_type == "validate":
-        ################ Validation ################
-        # Only use this for validation/test data because much smaller size
-        df_match_dist = mew.match_sampling_distributions(entire_cat_df, df_clean, 15000,
-                                                         "Magnitude distribution of different data sets",
-                                                         z_indicator="channelz", min_sep=min_magnitude_sep,
-                                                         max_sep=max_magnitude_sep)
-        #Plot distributions and make dataframe of events to combine
-        mew.plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
-        mew.plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
-                                    figdir="%s/filtered_validation_dist.jpg"%figdir)
-        mew.plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
-                                    filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
-        mew.plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
-                                    figdir="%s/3C_catalog_dist.jpg"%figdir)
-        #combine the waveforms
-        mew.combine_mew_waveforms(df_match_dist, X, outfile_pref, figdir=figdir)
+    # if split_type == "train":
+    #     mew.plot_sampling_distributions(df_clean, "Magnitude distribution of filtered training data",
+    #                               figdir="%s/filtered_training_dist.jpg"%figdir)
+    #
+    #     mew.plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+    #                                 figdir="%s/3C_catalog_dist.jpg"%figdir)
+    #     df_pairs, sampled_dist = mew.generate_sampling_distribution(df_clean, n_waveforms=1000, z_indicator="channelz",
+    #                                                                 min_sep=min_magnitude_sep, max_sep=max_magnitude_sep)
+    #     mew.plot_sampling_distributions(df_pairs, "Magnitude distribution of sampled training catalog",
+    #                                 figdir="%s/sampled_filtered_training_dist.jpg"%figdir)
+    #     # combine the waveforms
+    #     mew.combine_mew_waveforms(df_pairs, X, outfile_pref, figdir=figdir)
+    # elif split_type == "validate":
+    #     ################ Validation ################
+    #     # Only use this for validation/test data because much smaller size
+    #     df_match_dist = mew.match_sampling_distributions(entire_cat_df, df_clean, 15000,
+    #                                                      "Magnitude distribution of different data sets",
+    #                                                      z_indicator="channelz", min_sep=min_magnitude_sep,
+    #                                                      max_sep=max_magnitude_sep)
+    #     #Plot distributions and make dataframe of events to combine
+    #     mew.plot_sampling_distributions(df, "Magnitude distribution of validation data", figdir="%s/original_validation_dist.jpg"%figdir)
+    #     mew.plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist",
+    #                                 figdir="%s/filtered_validation_dist.jpg"%figdir)
+    #     mew.plot_sampling_distributions(df_match_dist, "Mag dist of filtered validation data made to match whole catalog dist - all mag types",
+    #                                 filter=False, figdir="%s/filtered_validation_dist_allmagtypes.jpg"%figdir)
+    #     mew.plot_sampling_distributions(entire_cat_df, "Magnitude distribution of entire 3C catalog",
+    #                                 figdir="%s/3C_catalog_dist.jpg"%figdir)
+    #     #combine the waveforms
+    #     mew.combine_mew_waveforms(df_match_dist, X, outfile_pref, figdir=figdir)
