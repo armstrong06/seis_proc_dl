@@ -1,3 +1,5 @@
+import sys
+sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl")
 from data_processing.split_data_detectors import SplitDetectorData
 
 window_duration = 10.0
@@ -10,7 +12,7 @@ max_pick_shift = 250
 pick_sample = 790
 phase_type ='P'
 
-pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead'
+pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead_detectors'
 h5_filename = f'{pref}/PStead_1790.h5'
 meta_file = f'{pref}/PStead_1790.csv'
 noise_h5_filename = f'{pref}/noiseStead_2000.h5'

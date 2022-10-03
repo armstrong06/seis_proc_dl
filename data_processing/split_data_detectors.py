@@ -315,7 +315,6 @@ class SplitDetectorData():
                     lrand = True, for_python=True, meta_for_boxcar=None, boxcar_widths={0: 21, 1: 31, 2: 51}):
         # Determine the sizes of the data
         print("initial", X.shape, Y.shape)
-        print("Using boxcar widths", boxcar_widths)
 
         n_obs = X.shape[0]
         n_samples = X.shape[1]
@@ -424,6 +423,7 @@ class SplitDetectorData():
                     Y_new[idup*n_obs+iobs, :] = Y[iobs, start_index+start_y:end_index-end_y]
 
         if meta_for_boxcar is not None:
+            print("Using boxcar widths", boxcar_widths)
             meta_for_boxcar = meta_for_boxcar.append([meta_for_boxcar] * (n_duplicate - 1))
             Y_new = boxcar.add_boxcar(meta_for_boxcar, boxcar_widths, X_new, Y, T_index)
 
