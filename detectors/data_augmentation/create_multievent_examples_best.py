@@ -607,8 +607,10 @@ class CreateMEW():
         print(X_aug.shape, Y_aug.shape, T_aug.shape, cnt)
         self.write_h5file(X_aug, Y_aug, T_aug, outfile_pref)
 
-        pd.DataFrame(new_catalog).to_csv("%s_synthetic_multievent_catalog.df.csv"%outfile_pref, index=False)
-        pd.DataFrame(comb_df[1:], columns=comb_df[0]).to_csv("%s_synthetic_multievent_summary_info.df.csv"%outfile_pref, index=False)
+        pd.DataFrame(new_catalog).to_csv("%s_synthetic_multievent_catalog.df.csv"%outfile_pref,
+                                         index=False, float_format="%.7f")
+        pd.DataFrame(comb_df[1:], columns=comb_df[0]).to_csv("%s_synthetic_multievent_summary_info.df.csv"%outfile_pref,
+                                                             index=False, float_format="%.7f")
 
 if __name__ == "__main__":
     split_type = "train"

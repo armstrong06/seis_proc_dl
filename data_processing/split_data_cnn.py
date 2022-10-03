@@ -247,7 +247,7 @@ class SplitData():
          print("Writing", len(train_df), "training examples")
          assert len(train_df) == X_train_h5.shape[0], 'Training size mismatch'
          assert len(train_df) == len(y_train_h5), 'Training target size mismatch'
-         train_df.to_csv(output_file_root + '_train.csv', index=False)
+         train_df.to_csv(output_file_root + '_train.csv', index=False, float_format="%.7f")
          h5 = h5py.File(output_file_root + '_train.h5', 'w')
          h5['X'] = X_train_h5
          h5['Y'] = y_train_h5
@@ -257,7 +257,7 @@ class SplitData():
          print("Writing", len(validation_df), "validation examples")
          assert len(validation_df) == X_validation_h5.shape[0], 'Validation size mismatch'
          assert len(validation_df) == len(y_validation_h5), 'Validation target size mismatch'
-         validation_df.to_csv(output_file_root + '_validation.csv', index=False)
+         validation_df.to_csv(output_file_root + '_validation.csv', index=False, float_format="%.7f")
          h5 = h5py.File(output_file_root + '_validation.h5', 'w')
          h5['X'] = X_validation_h5
          h5['Y'] = y_validation_h5
@@ -267,7 +267,7 @@ class SplitData():
          print("Writing", len(test_df), "test examples")
          assert len(test_df) == X_test_h5.shape[0], 'Test size mismatch'
          assert len(test_df) == len(y_test_h5), 'Test target size mismatch'
-         test_df.to_csv(output_file_root + '_test.csv', index=False)
+         test_df.to_csv(output_file_root + '_test.csv', index=False, float_format="%.7f")
          h5 = h5py.File(output_file_root + '_test.h5', 'w')
          h5['X'] = X_test_h5
          h5['Y'] = y_test_h5

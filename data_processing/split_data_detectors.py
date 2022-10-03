@@ -63,24 +63,24 @@ class SplitDetectorData():
         # TODO: Add way to write when there may not be noise for some reason
         combined = self.__combine_signal_noise(self.signal_train, self.noise_train)
         Write.h5py_file(["X", "Y", "Pick_index"], combined, self.make_filename("train", "h5"))
-        self.signal_train_meta.to_csv(self.make_filename("train", "csv"), index=False)
+        self.signal_train_meta.to_csv(self.make_filename("train", "csv"), index=False, float_format="%.7f")
 
         if self.signal_test is not None:
             combined = self.__combine_signal_noise(self.signal_test, self.noise_test)
             Write.h5py_file(["X", "Y", "Pick_index"], combined, self.make_filename("test", "h5"))
-            self.signal_test_meta.to_csv(self.make_filename("test", "csv"), index=False)
+            self.signal_test_meta.to_csv(self.make_filename("test", "csv"), index=False, float_format="%.7f")
 
         if self.signal_validate is not None:
             combined = self.__combine_signal_noise(self.signal_validate, self.noise_validate)
             Write.h5py_file(["X", "Y", "Pick_index"], combined, self.make_filename("validate", "h5"))
-            self.signal_validate_meta.to_csv(self.make_filename("validate", "csv"), index=False)
+            self.signal_validate_meta.to_csv(self.make_filename("validate", "csv"), index=False, float_format="%.7f")
 
         if self.noise_train_meta is not None:
-            self.noise_train_meta.to_csv(self.make_filename("train", "csv", is_noise=True), index=False)
+            self.noise_train_meta.to_csv(self.make_filename("train", "csv", is_noise=True), index=False, float_format="%.7f")
             if self.noise_test_meta is not None:
-                self.noise_test_meta.to_csv(self.make_filename("test", "csv", is_noise=True), index=False)
+                self.noise_test_meta.to_csv(self.make_filename("test", "csv", is_noise=True), index=False, float_format="%.7f")
             if self.noise_validate_meta is not None:
-                self.noise_validate_meta.to_csv(self.make_filename("validate", "csv", is_noise=True), index=False)
+                self.noise_validate_meta.to_csv(self.make_filename("validate", "csv", is_noise=True), index=False, float_format="%.7f")
 
     def load_signal_data(self, h5_phase_file, meta_csv_file, min_training_quality=-1):
         """Read in the signal data"""
@@ -464,7 +464,8 @@ class SplitDetectorData():
 
             print("Saving extracted event data...")
             extract_events.write_h5file(X_ext, Y_ext, self.make_filename(extract_events_params["name"], "h5"), T=T_ext)
-            extracted_event_meta.to_csv(self.make_filename(extract_events_params["name"], "df.csv"), index=False)
+            extracted_event_meta.to_csv(self.make_filename(extract_events_params["name"], "df.csv"), index=False,
+                                        float_format="%.7f")
 
             return kept_event_X, kept_event_Y, kept_event_meta
  
