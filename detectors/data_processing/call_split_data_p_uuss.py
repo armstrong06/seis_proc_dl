@@ -12,15 +12,16 @@ train_frac = 0.8
 noise_train_frac = 0.8
 test_frac = 0.5
 max_pick_shift = 250
+phase_type = "P"
 
 boxcar_widths={0: 31, 1: 31, 2: 31}
 
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive'
-ys_noise_h5_filename = f'{pref}/noise_ENZ/verticalComp.allNoiseYellowstoneWaveformsPermuted.h5'
-magna_noise_h5_filename = f'{pref}/noise_ENZ/verticalComp.allNoiseMagnaWaveformsPermuted.P.10s.h5'
+ys_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseYellowstoneWaveformsPermuted.h5'
+magna_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseMagnaWaveformsPermuted.P.10s.h5'
 
-pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector'
-outdir_name = "NEW_onecomp_p_resampled_10s"
+pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector'
+outdir_name = "NEW_p_resampled_10s"
 
 # For NGB events - Don't need these for STEAD data
 # Remove events within these bounds
@@ -46,11 +47,11 @@ bounds = {"lat_min": lat_min,
 extract_events_params = {"bounds":bounds, "name":"NGB"}
 
 ## Current Earthquakes
-h5_filename = f'{pref}/current_earthquake_catalog_1c.h5' #P_current_earthquake_catalog.h5'
-meta_file = f'{pref}/current_earthquake_catalog_1c.csv' #P_current_earthquake_catalog.csv'
+h5_filename = f'{pref}/P_current_earthquake_catalog.h5'
+meta_file = f'{pref}/P_current_earthquake_catalog.csv'
 outpref = f"{pref}/{outdir_name}/currenteq."
 
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, outpref)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file)
 spliter.split_signal(train_frac, test_frac, extract_events_params=extract_events_params)
 spliter.process_signal(boxcar_widths=boxcar_widths)
@@ -66,9 +67,9 @@ ceq_train_noise, ceq_test_noise, ceq_validate_noise = spliter.return_noise()
 ceq_train_noise_df, ceq_test_noise_df, ceq_validate_noise_df = spliter.return_noise_meta()
 
 # Blast catalog
-h5_filename = f'{pref}/current_blast_catalog_1c.h5' #P_current_blast_catalog.h5'
-meta_file = f'{pref}/current_blast_catalog_1c.csv' #P_current_blast_catalog.csv'
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1)
+h5_filename = f'{pref}/P_current_blast_catalog.h5'
+meta_file = f'{pref}/P_current_blast_catalog.csv'
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type)
 spliter.load_signal_data(h5_filename, meta_file, min_training_quality=1)
 spliter.split_signal(0.8, 0.5, extract_events_params=None)
 spliter.process_signal(boxcar_widths=boxcar_widths)
@@ -76,10 +77,10 @@ cbl_train,cbl_test,cbl_validate = spliter.return_signal()
 cbl_train_df, cbl_test_df, cbl_validate_df = spliter.return_signal_meta()
 
 # Historical Earthquakes
-h5_filename = f'{pref}/historical_earthquake_catalog_1c.h5' #P_historical_earthquake_catalog.h5'
-meta_file = f'{pref}/historical_earthquake_catalog_1c.csv' #P_historical_earthquake_catalog.csv'
+h5_filename = f'{pref}/P_historical_earthquake_catalog.h5'
+meta_file = f'{pref}/P_historical_earthquake_catalog.csv'
 outpref = f"{pref}/{outdir_name}/combined." #name for the combined files - use this spliter instance to make name
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, outfile_pref=outpref)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file, min_training_quality=0.75)
 spliter.split_signal(0.2, 0.98, extract_events_params=None)
 spliter.process_signal(boxcar_widths=boxcar_widths)

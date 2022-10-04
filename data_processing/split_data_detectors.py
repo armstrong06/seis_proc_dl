@@ -144,8 +144,6 @@ class SplitDetectorData():
 
         print("Sampling signal rows...")
         train_rows, test_rows = self.__sample_on_evid(meta_df, train_frac)
-        
-        self.__set_n_signal_waveforms(len(train_rows), len(test_rows))
 
         validate_rows = None
         if (test_frac > 0 and test_frac < 1):
@@ -204,7 +202,10 @@ class SplitDetectorData():
         # TODO: This duplicates noise if there are fewer noise waveforms that signal
         if reduce_stead_noise:
             X_noise, Y_noise, noise_meta_df = self.__reduce_stead_noise_dataset(X_noise, Y_noise, noise_meta_df)
-        
+            # Increase the train fraction if the signal training data was duplicated
+            if self.n_duplicate_train > 1:
+                noise_train_frac = len(self.signal_train_meta)/len(noise_meta_df)
+
         print("Samping noise rows...")
         n_noise = X_noise.shape[0]
         # Changed np.arange(0, n_noise-1, 1) becuase I don't think the -1 is necessary
@@ -262,9 +263,6 @@ class SplitDetectorData():
         if not os.path.exists(dir):
             print(f"Making output directory {dir}")
             os.mkdir(dir)
-
-    def __set_n_signal_waveforms(self, n_train_signal, n_test_signal):
-        self.n_signal_waveforms = n_train_signal * self.n_duplicate_train + n_test_signal
 
     def make_filename(self, split, file_type, is_noise=False):
         """Creates a filename for different data splits following a common naming scheme"""
@@ -478,11 +476,17 @@ class SplitDetectorData():
         # (3 waveforms/stead trace when splitting them into 20 seconds)
         noise_rows = np.arange(0, len(X_noise), 3)
 
-        if len(noise_rows) < self.n_signal_waveforms:
+        n_signal_waveforms = len(self.signal_train_meta)
+        if self.signal_validate_meta is not None:
+            n_signal_waveforms += (self.signal_validate_meta)
+        if self.signal_test_meta is not None:
+            n_signal_waveforms += len(self.signal_test_meta)
+
+        if len(noise_rows) < n_signal_waveforms:
             rows_to_sample = np.full(len(X_noise), 1)
             rows_to_sample[noise_rows] = 0
             # TODO: add a seed to this random.choice
-            noise_rows = np.append(noise_rows, np.random.choice(np.arange(0, len(X_noise))[np.where(rows_to_sample)], self.n_signal_waveforms-len(noise_rows)))
+            noise_rows = np.append(noise_rows, np.random.choice(np.arange(0, len(X_noise))[np.where(rows_to_sample)], n_signal_waveforms-len(noise_rows)))
             noise_rows = np.sort(noise_rows)
 
         X_noise = X_noise[noise_rows, :, :]

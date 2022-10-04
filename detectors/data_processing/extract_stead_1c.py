@@ -2,11 +2,16 @@ import h5py
 import glob
 import os
 
-pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead"
-data_dir = f"{pref}/p_resampled_10s"
-out_dir = f"{pref}/p_1c_resampled_10s"
+pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/stead_detectors"
+data_dir = f"{pref}/NEW_p_resampled_10s"
+out_dir = f"{pref}/NEW_p_1c_resampled_10s"
 
 z_ind = 2
+
+if not os.path.exists(out_dir):
+    print(f"Making output directory {out_dir}")
+    os.mkdir(out_dir)
+
 
 for file in glob.glob(f"{data_dir}/*h5"):
     h5f = h5py.File(file, "r")

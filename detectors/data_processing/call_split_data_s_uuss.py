@@ -21,6 +21,7 @@ ys_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseYellowstoneWaveformsPermuted.h
 magna_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseMagnaWaveformsPermuted.P.10s.h5'
 
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector'
+outdir = "NEW_S_resampled_10s"
 
 # For NGB events - Don't need these for STEAD data
 # Remove events within these bounds
@@ -48,7 +49,7 @@ extract_events_params = {"bounds":bounds, "name":"NGB"}
 ## Current Earthquakes
 h5_filename = f'{pref}/S_current_earthquake_catalog.h5'
 meta_file = f'{pref}/S_current_earthquake_catalog.csv'
-outpref = f"{pref}/NEW_S_resampled_10s/currenteq."
+outpref = f"{pref}/{outdir}/currenteq."
 
 spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file)
@@ -78,7 +79,7 @@ cbl_train_df, cbl_test_df, cbl_validate_df = spliter.return_signal_meta()
 # Historical Earthquakes
 h5_filename = f'{pref}/S_historical_earthquake_catalog.h5'
 meta_file = f'{pref}/S_historical_earthquake_catalog.csv'
-outpref = f"{pref}/S_resampled_10s/combined."
+outpref = f"{pref}/{outdir}/combined."
 spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file, min_training_quality=0.75)
 spliter.split_signal(0.2, 0.98, extract_events_params=None)

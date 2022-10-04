@@ -613,12 +613,11 @@ class CreateMEW():
                                                              index=False, float_format="%.7f")
 
 if __name__ == "__main__":
-    split_type = "train"
+    split_type = "validate"
 
-    pref_entire_cat = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector"
-    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector/onecomp_p_resampled_10s"
-    #outpref = f"{pref}/synthetic_multievent_waveforms"
-    outpref = f"{pref}/synthetic_multievent_waveforms"
+    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector"
+    split_pref = f"{pref}/NEW_p_resampled_10s"
+    outpref = f"{split_pref}/synthetic_multievent_waveforms"
 
     outfile_pref = f"{outpref}/{split_type}P.10s.1dup"
     figdir = f"{outpref}/{split_type}_figs"
@@ -629,25 +628,25 @@ if __name__ == "__main__":
     if not os.path.exists(figdir):
         os.makedirs(figdir)
 
-    mew = CreateMEW(1008, 250, 25)
+    mew = CreateMEW(1008, 250, 15)
 
     # Print mew attributes
     attrs = vars(mew)
     print(', '.join("%s: %s" % item for item in attrs.items()))
 
-    n_waveforms = 40000
+    n_waveforms = 10000
     min_magnitude_sep = 0.1
     max_magnitude_sep = 1.5
 
     # Read in entire 3C catalog
-    entire_cat_df = pd.read_csv(f"{pref_entire_cat}/current_earthquake_catalog_1c.csv")
+    entire_cat_df = pd.read_csv(f"{pref}/P_current_earthquake_catalog.csv")
     entire_cat_df = entire_cat_df[entire_cat_df["phase"] == "P"]
 
     # Read in untrimmed/unnormalized data
-    X = mew.read_h5file(f"{pref_entire_cat}/current_earthquake_catalog_1c.h5")
+    X = mew.read_h5file(f"{pref}/P_current_earthquake_catalog.h5")
 
     # Read in split catalog
-    df = pd.read_csv(f"{pref}/currenteq.{split_type}.10s.1dup.csv", dtype={'location'  : object})
+    df = pd.read_csv(f"{split_pref}/currenteq.{split_type}.10s.1dup.csv", dtype={'location'  : object})
     df = df[df.phase == "P"]
 
 
