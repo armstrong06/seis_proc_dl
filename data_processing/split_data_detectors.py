@@ -478,7 +478,7 @@ class SplitDetectorData():
 
         n_signal_waveforms = len(self.signal_train_meta)
         if self.signal_validate_meta is not None:
-            n_signal_waveforms += (self.signal_validate_meta)
+            n_signal_waveforms += len(self.signal_validate_meta)
         if self.signal_test_meta is not None:
             n_signal_waveforms += len(self.signal_test_meta)
 
