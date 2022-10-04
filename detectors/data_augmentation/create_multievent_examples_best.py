@@ -649,7 +649,6 @@ if __name__ == "__main__":
     df = pd.read_csv(f"{split_pref}/currenteq.{split_type}.10s.1dup.csv", dtype={'location'  : object})
     df = df[df.phase == "P"]
 
-
     # Clean up the dataset
     df_clean, catalog_close_event_df = mew.clean_df(df, pick_indicator="arrival_time", quality_req=[1.0, 0.75], sr_dist_max=35)
 

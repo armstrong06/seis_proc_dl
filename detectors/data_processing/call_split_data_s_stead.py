@@ -19,7 +19,6 @@ h5_filename = f'{pref}/stead_detectors/SStead_2000.h5'
 meta_file = f'{pref}/stead_detectors/SStead_2000.csv'
 noise_h5_filename = f'{pref}/stead_detectors/noiseStead_2000.h5'
 noise_meta_file = f'{pref}/stead_detectors/noiseStead_2000.csv'
-
 outpref = f"{pref}/stead_detectors/NEW_s_resampled_{int(window_duration)}s/{phase_type}."
 
 #window_duration, dt, max_pick_shift, n_duplicate_train, phase_type

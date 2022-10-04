@@ -199,7 +199,6 @@ class SplitDetectorData():
 
         print("Input noise shape:", X_noise.shape, Y_noise.shape)
 
-        # TODO: This duplicates noise if there are fewer noise waveforms that signal
         if reduce_stead_noise:
             X_noise, Y_noise, noise_meta_df = self.__reduce_stead_noise_dataset(X_noise, Y_noise, noise_meta_df)
             # Increase the train fraction if the signal training data was duplicated

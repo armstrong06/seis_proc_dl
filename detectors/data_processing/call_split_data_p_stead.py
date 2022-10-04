@@ -17,7 +17,6 @@ h5_filename = f'{pref}/PStead_1790.h5'
 meta_file = f'{pref}/PStead_1790.csv'
 noise_h5_filename = f'{pref}/noiseStead_2000.h5'
 noise_meta_file = f'{pref}/noiseStead_2000.csv'
-
 outpref = f"{pref}/NEW_p_resampled_10s/{phase_type}."
 
 boxcar_widths={0: 61, 1: 61, 2: 61}
