@@ -204,7 +204,7 @@ class SplitDetectorData():
             X_noise, Y_noise, noise_meta_df = self.__reduce_stead_noise_dataset(X_noise, Y_noise, noise_meta_df)
             # Increase the train fraction if the signal training data was duplicated
             if self.n_duplicate_train > 1:
-                noise_train_frac = len(self.signal_train_meta)/len(noise_meta_df)
+                noise_train_frac = (self.n_duplicate_train*len(self.signal_train_meta))/len(noise_meta_df)
 
         print("Samping noise rows...")
         n_noise = X_noise.shape[0]
@@ -476,7 +476,7 @@ class SplitDetectorData():
         # (3 waveforms/stead trace when splitting them into 20 seconds)
         noise_rows = np.arange(0, len(X_noise), 3)
 
-        n_signal_waveforms = len(self.signal_train_meta)
+        n_signal_waveforms = self.n_duplicate_train*len(self.signal_train_meta)
         if self.signal_validate_meta is not None:
             n_signal_waveforms += len(self.signal_validate_meta)
         if self.signal_test_meta is not None:
