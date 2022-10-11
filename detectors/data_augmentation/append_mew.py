@@ -1,22 +1,25 @@
 import h5py
 import numpy as np
 
-pref = "/home/armstrong/Research/newer/onecomp_p_detector_mew/uuss_data"
+pref = "/home/armstrong/Research/new_boxcar_widths/pDetector_mew/uuss_data"
 split_type = "validate"
 
 org_file = f"{pref}/combined.{split_type}.10s.1dup.h5"
 mew_file = f"{pref}/{split_type}P.10s.1dup_synthetic_multievent_waveforms.h5"
 
+print(org_file)
+print(mew_file)
+
 with h5py.File(mew_file, "r") as hf:
     print(hf.keys())
-    print(hf["X"].shape, hf["Y"].shape, hf["Pick_index"].shape)
+    print("Mew file:", hf["X"].shape, hf["Y"].shape, hf["Pick_index"].shape, hf["Pick_index2"].shape)
     mew_X = hf["X"][:]
     mew_Y = hf["Y"][:]
     mew_T = hf["Pick_index"][:]
     mew_T2 = hf["Pick_index2"][:]
 
 with h5py.File(org_file, "r") as hf:
-    print(hf["X"].shape, hf["Y"].shape, hf["Pick_index"].shape)
+    print("UUSS file:", hf["X"].shape, hf["Y"].shape, hf["Pick_index"].shape)
     org_X = hf["X"][:]
     org_Y = hf["Y"][:]
     org_T = hf["Pick_index"][:]

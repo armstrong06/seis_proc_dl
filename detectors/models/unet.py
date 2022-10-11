@@ -138,7 +138,7 @@ class UNet(BaseModel):
 
     # TODO: Make this a class method?
     # TODO: Add way to evalute the selected pre-trained model first?
-    def evaluate_specified_models(self, test_file, epochs, test_type, batch_size=None, 
+    def evaluate_specified_models_old(self, test_file, epochs, test_type, batch_size=None, 
                                     tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False, df=None):
         if self.evaluation_epoch >= 0:
             print("Can't do multi-model evaluation with model state loaded")
@@ -160,6 +160,29 @@ class UNet(BaseModel):
             multi_evaluator.evaluate_over_models_mew(test_file, tols, df=df)
         else:
             multi_evaluator.evaluate_over_models(test_file, tols, pick_method, df=df)
+    
+    def evaluate_specified_models_new(self, test_file, epochs, test_type, batch_size=None, 
+                                    tols=np.linspace(0.05, 0.95, 21), pick_method="single", mew=False, df=None):
+        if self.evaluation_epoch >= 0:
+            print("Can't do multi-model evaluation with model state loaded")
+        
+        have_df = False
+        if df is not None:
+            have_df = True
+            df = pd.read_csv(df)
+
+        self.set_results_out_dir(test_type, have_df=have_df)
+
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        evaluator = UNetEvaluator(batch_size, self.device, self.center_window, 
+                                  minimum_presigmoid_value=self.minimum_presigmoid_value)
+        
+        evaluator.set_model(self.model)
+        
+        evaluator.evaluate_over_models(test_file, epochs, self.model_path, self.results_out_dir, tols, pick_method, df=df)
+               
 
     def make_model_path(self, path):
         return f'{path}/{self.phase_type}_models_{self.batch_size}_{self.learning_rate}'
