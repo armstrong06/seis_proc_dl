@@ -11,7 +11,7 @@ sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-p
 from utils.model_helpers import compute_outer_fence_mean_standard_deviation
 
 class PickEvaluator():
-    def __init__(self, model, device, time_series_length, dt, batch_size, model_dir, outdir):
+    def __init__(self, model, device, time_series_length, dt, batch_size, model_dir, outdir, random_seed=None):
         self.model = model
         self.device = device
         self.time_series_length = time_series_length
@@ -19,7 +19,11 @@ class PickEvaluator():
         self.batch_size = batch_size
         self.outdir = outdir
         self.model_dir = model_dir
-    
+        
+        if random_seed is not None:
+            np.random.seed(random_seed)
+            torch.manual_seed(random_seed)
+
     def apply_model(self, df, X_test, y_test, epochs, test_type, do_shift=True):
         results_df_name = f"{self.outdir}/{test_type}_results.csv"
         residuals_outname_pref = f"{self.outdir}/{test_type}_residuals.txt"

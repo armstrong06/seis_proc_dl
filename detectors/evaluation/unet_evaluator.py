@@ -13,7 +13,9 @@ from utils.model_helpers import clamp_presigmoid_values
 
 class UNetEvaluator():
 
-    def __init__(self, batch_size, device, center_window=None, apply_sigmoid=True, minimum_presigmoid_value=None, debug_model_output=False):
+    def __init__(self, batch_size, device, center_window=None, apply_sigmoid=True, 
+                    minimum_presigmoid_value=None, debug_model_output=False, 
+                    random_seed=None):
         self.min_presigmoid_value = minimum_presigmoid_value
         self.model = None
         self.batch_size = batch_size
@@ -21,6 +23,10 @@ class UNetEvaluator():
         self.device = device
         self.center_window = center_window
         self.debug_model_output = debug_model_output
+
+        if random_seed is not None:
+            np.random.seed(random_seed)
+            torch.manual_seed(random_seed)
 
     def get_n_params(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)

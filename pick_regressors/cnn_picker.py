@@ -110,7 +110,7 @@ class Picker(BaseModel):
             print("Freezing convolutional layers...")
             self.model.freeze_convolutional_layers()
 
-        trainer = PickTrainer(self.model, optimizer, model_path=self.model_path, device=self.device)
+        trainer = PickTrainer(self.model, optimizer, model_path=self.model_path, device=self.device, random_seed=self.random_seed)
         trainer.train(train_loader, validation_loader, self.train_epochs)
         self.evaluation_epoch = self.train_epochs
 
@@ -131,8 +131,8 @@ class Picker(BaseModel):
         if batch_size is None:
             batch_size = self.batch_size
 
-        evaluator = PickEvaluator(self.model, self.device, self.time_series_len, 
-                                    self.dt, batch_size, self.model_out_dir, self.results_out_dir)
+        evaluator = PickEvaluator(self.model, self.device, self.time_series_len, self.dt, batch_size, 
+                                    self.model_out_dir, self.results_out_dir, random_seed=self.random_seed)
 
         evaluator.apply_model(df, X, Y, epochs, test_type, do_shift=shift_pred)
 

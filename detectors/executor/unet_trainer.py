@@ -8,7 +8,8 @@ from sklearn.metrics import classification_report
 from utils.model_helpers import clamp_presigmoid_values
 
 class UNetTrainer():
-    def __init__(self, network, optimizer, loss_fn, model_path, device, phase_type="P", detection_thresh=0.5, minimum_presigmoid_value=None):
+    def __init__(self, network, optimizer, loss_fn, model_path, device, phase_type="P", 
+                    detection_thresh=0.5, minimum_presigmoid_value=None, random_seed=None):
         self.network = network
         self.optimizer = optimizer
         self.loss_fn = loss_fn
@@ -17,6 +18,10 @@ class UNetTrainer():
         self.detection_thresh = detection_thresh
         self.device = device
         self.min_presigmoid_value = minimum_presigmoid_value
+
+        if random_seed is not None:
+            np.random.seed(random_seed)
+            torch.manual_seed(random_seed)
 
         if (not os.path.exists(self.model_path)):
             os.makedirs(self.model_path)

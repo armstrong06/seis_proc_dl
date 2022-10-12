@@ -38,14 +38,22 @@ class UNet(BaseModel):
 
         self.results_out_dir = None #f"{self.model_out_dir}/results"
 
+        # If the seed is set in the configs file, default set it to 3940
+        # To not set a random seed throughout, use a seed < 0
         try:
             seed = self.config.model.seed
         except:
             seed = 3940
             print("Setting random seed to", seed)
 
-        np.random.seed(seed)
-        torch.manual_seed(seed)
+        if seed >= 0:
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+        else:
+            seed = None
+
+        self.seed = seed
+
 
     def set_results_out_dir(self, test_type, have_df=False):
         outdir = f"{self.model_out_dir}/{test_type}_results"
@@ -121,7 +129,7 @@ class UNet(BaseModel):
 
         trainer = UNetTrainer(self.model, optimizer, loss, self.model_path, self.device, 
                         phase_type=self.phase_type, detection_thresh=self.detection_threshold, 
-                        minimum_presigmoid_value=self.minimum_presigmoid_value)
+                        minimum_presigmoid_value=self.minimum_presigmoid_value, random_seed=self.seed)
         trainer.train(train_loader, self.train_epochs, val_loader=validation_loader)
         self.evaluation_epoch = self.train_epochs
 
@@ -136,7 +144,8 @@ class UNet(BaseModel):
         #test_loader = self.load_data(test_file, shuffle=False)
         X, Y, T = self.read_data(test_file)
         evaluator = UNetEvaluator(self.batch_size, self.device, self.center_window, 
-                                minimum_presigmoid_value=self.minimum_presigmoid_value)
+                                minimum_presigmoid_value=self.minimum_presigmoid_value, 
+                                random_seed=self.seed)
         evaluator.set_model(self.model)
         post_probs, pick_info = evaluator.apply_model(X, pick_method)
         results = evaluator.tabulate_metrics(T, pick_info[1], pick_info[0], str(self.evaluation_epoch))
@@ -186,7 +195,8 @@ class UNet(BaseModel):
             batch_size = self.batch_size
 
         evaluator = UNetEvaluator(batch_size, self.device, self.center_window, 
-                                  minimum_presigmoid_value=self.minimum_presigmoid_value)
+                                  minimum_presigmoid_value=self.minimum_presigmoid_value, 
+                                  random_seed=self.seed)
         
         evaluator.set_model(self.model)
         

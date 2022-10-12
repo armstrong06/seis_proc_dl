@@ -9,11 +9,15 @@ sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-p
 from utils.model_helpers import get_n_params, compute_outer_fence_mean_standard_deviation
 
 class PickTrainer():
-    def __init__(self, network, optimizer, model_path, device):
+    def __init__(self, network, optimizer, model_path, device, random_seed=None):
         self.network = network
         self.optimizer = optimizer
         self.model_path = model_path
         self.device = device
+
+        if random_seed is not None:
+            np.random.seed(random_seed)
+            torch.manual_seed(random_seed)
 
     def train(self, train_loader, val_loader, n_epochs):
         self.network.train()
