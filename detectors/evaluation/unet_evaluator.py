@@ -652,6 +652,8 @@ class UNetEvaluator():
             model_to_test = glob.glob(os.path.join(model_states_path, f"*{epoch:03}.pt"))
             assert len(model_to_test)==1, "Wrong number of model paths found"
             training_loss = self.load_model_state(model_to_test[0])
+            if epoch < 0:
+                training_loss.update({"epoch":epoch})
             #self.set_model(self.model)
             post_probs, pick_info = self.apply_model(X_test, pick_method=pick_method)
             Y_proba = pick_info[1]
