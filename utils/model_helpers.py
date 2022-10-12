@@ -24,8 +24,8 @@ def compute_outer_fence_mean_standard_deviation(residuals):
     """
     q1, q3 = np.percentile(residuals, [25,75])
     iqr = q3 - q1
-    of1 = q1 - 1.5*iqr
-    of3 = q3 + 1.5*iqr
+    of1 = q1 - 3.0*iqr
+    of3 = q3 + 3.0*iqr
     trimmed_residuals = residuals[(residuals > of1) & (residuals < of3)]
     #print(len(trimmed_residuals), len(residuals), of1, of3)
     mean = np.mean(trimmed_residuals)
