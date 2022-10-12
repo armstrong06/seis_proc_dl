@@ -38,6 +38,15 @@ class UNet(BaseModel):
 
         self.results_out_dir = None #f"{self.model_out_dir}/results"
 
+        try:
+            seed = self.config.model.seed
+        except:
+            seed = 3940
+            print("Setting random seed to", seed)
+
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
     def set_results_out_dir(self, test_type, have_df=False):
         outdir = f"{self.model_out_dir}/{test_type}_results"
         if have_df:

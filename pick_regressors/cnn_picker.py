@@ -32,6 +32,7 @@ class Picker(BaseModel):
         self.freeze_convolutional_layers = self.config.model.freeze_convolutional_layers
         self.random_seed = self.config.model.random_seed
         np.random.seed(self.random_seed)
+        torch.manual_seed(self.random_seed)
 
         # Data Config Params
         self.time_series_len = self.config.data.time_series_length
