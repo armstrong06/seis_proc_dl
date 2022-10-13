@@ -615,11 +615,15 @@ class UNetEvaluator():
         print(f"Loading {model_in}")
         check_point = torch.load(model_in)
         training_loss = {'epoch': check_point['epoch'], 'training_loss': check_point['loss']}
+        try:
+            validation_loss = {'epoch': check_point['epoch'], 'validation_loss': check_point['validation_loss']}
+        except:
+            validation_loss = None
         #print(training_loss)
         self.model.load_state_dict(check_point['model_state_dict'])
         self.model.eval()
 
-        return training_loss
+        return training_loss, validation_loss
 
     @staticmethod
     def load_dataset(h5f, mew=False):
@@ -657,9 +661,12 @@ class UNetEvaluator():
         for epoch in epochs:
             model_to_test = glob.glob(os.path.join(model_states_path, f"*{epoch:03}.pt"))
             assert len(model_to_test)==1, "Wrong number of model paths found"
-            training_loss = self.load_model_state(model_to_test[0])
+            training_loss, validation_loss = self.load_model_state(model_to_test[0])
             if epoch < 0:
                 training_loss.update({"epoch":epoch})
+                if validation_loss is not None:
+                    validation_loss.update({"epoch":epoch})
+
             #self.set_model(self.model)
             post_probs, pick_info = self.apply_model(X_test, pick_method=pick_method)
             Y_proba = pick_info[1]
@@ -678,6 +685,8 @@ class UNetEvaluator():
             metric = self.tabulate_metrics(T_test, Y_proba, T_est_index, epoch, tols=tols, df=df)
             for m in metric:
                 m.update(training_loss)
+                if validation_loss is not None:
+                    m.update(validation_loss)
                 metrics.append(m)
 
             if save_proba:
