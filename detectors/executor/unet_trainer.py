@@ -62,9 +62,12 @@ class UNetTrainer():
             total_train_loss = 0
             running_sample_count = 0
 
-            total_val_loss = 0
-            total_val_acc = 0
-            running_val_acc = 0
+            if val_loader is not None:
+                total_val_loss = 0
+                running_val_acc = 0
+            else:
+                total_val_loss = None
+                running_val_acc = None
 
             for i, batch in enumerate(train_loader, 0):
                 
@@ -100,7 +103,7 @@ class UNetTrainer():
             total_train_loss /= len(train_loader)
             print("Training loss:", total_train_loss)
 
-            total_val_loss = None
+            
             if val_loader is not None:
                 # Not using these now, but could in the future if wanted to stop on validation loss
                 running_val_acc, total_val_loss = self.compute_validation_accuracy(val_loader, running_val_acc, total_val_loss)
@@ -148,12 +151,12 @@ class UNetTrainer():
                 y_pred = torch.zeros(val_outputs.data.size()).to(self.device)
                 y_pred[val_outputs >= 0.5] = 1
 
-                # Compute the pick times
-                y_pred = y_pred.cpu().numpy()
-                y_true = y_true.cpu().numpy()
+                # # Compute the pick times
+                # y_pred = y_pred.cpu().numpy()
+                # y_true = y_true.cpu().numpy()
 
-                y_pred_all.append(y_pred.flatten())
-                y_true_all.append(y_true.flatten())
+                # y_pred_all.append(y_pred.flatten())
+                # y_true_all.append(y_true.flatten())
 
                 #y_pred_all.append(y_pred.cpu().numpy().flatten())
                 #y_true_all.append(y_true.cpu().numpy().flatten())
