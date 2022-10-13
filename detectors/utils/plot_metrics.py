@@ -123,7 +123,7 @@ def plot_seperate_convergence_history(df_test_summary, tol = 0.5,
 
 
         ax1.set_ylabel("Testing Value")
-        ax1.set_xlim(np.min(df_work["epoch"]), max(df_work['epoch']+1))
+        ax1.set_xlim(np.min(df_work["epoch"])-1, max(df_work['epoch']+2))
 
         ax1.legend(lines, [l.get_label() for l in lines], loc='lower right')
         #ax2.legend()
@@ -144,6 +144,7 @@ def plot_residual_hist(df_valid_resid, opt_model, meta_df=None, bins=np.arange(-
         plt.hist(df_epoch.iloc[current_eq_rows].residual, bins=bins, edgecolor='black', label="ceq")
         plt.hist(df_epoch.iloc[historical_eq_rows].residual, bins=bins, edgecolor='black', label="heq")
         plt.hist(df_epoch.iloc[current_blast_rows].residual, bins=bins, edgecolor='black', label="cqb")
+        plt.legend()
 
     plt.title("Pick Residual Distribution for Epoch %d"%(opt_model+1))
 
@@ -181,8 +182,9 @@ def plot_magnitude_difference_vs_residual(df_valid_resid, df_valid, epoch, epoch
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 
     h = axes[0].hist2d(magnitude_diffs, df_epoch.iloc[even_rows].residual, bins=bin_dims, cmin=1, cmap=cmap, vmax=cbar_max);
+    h2_max = np.nanmax(h[0]) if cbar_max is None else np.max([np.nanmax(h[0]), cbar_max])
     h2 = axes[1].hist2d(magnitude_diffs, df_epoch.iloc[odd_rows].residual, bins=bin_dims, cmin=1, cmap=cmap,
-                            vmin=1, vmax=np.max([np.nanmax(h[0]), cbar_max]));
+                            vmin=1, vmax=h2_max);
 
     axes[0].set_ylabel("Pick Residual (samples)", fontsize=14)
     axes[1].set_xlabel("Magnitude Difference (First event - second event)", fontsize=14)
@@ -199,7 +201,7 @@ def plot_magnitude_difference_vs_residual(df_valid_resid, df_valid, epoch, epoch
     plt.scatter(magnitude_diffs, df_epoch.iloc[even_rows].residual, alpha=0.2, label="First event")
 
     plt.ylabel("Pick Residual (samples)", fontsize=14)
-    plt.xlabel("Mangitude Difference (First event - second event)", fontsize=14)
+    plt.xlabel("Magnitude Difference (First event - second event)", fontsize=14)
     plt.legend()
 
 def plot_precision_recall(df, opt_model, is_p_wave = True):
