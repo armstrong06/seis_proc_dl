@@ -62,13 +62,6 @@ class UNetTrainer():
             total_train_loss = 0
             running_sample_count = 0
 
-            if val_loader is not None:
-                total_val_loss = 0
-                running_val_acc = 0
-            else:
-                total_val_loss = None
-                running_val_acc = None
-
             for i, batch in enumerate(train_loader, 0):
                 
                 inputs, y_true = batch
@@ -103,10 +96,9 @@ class UNetTrainer():
             total_train_loss /= len(train_loader)
             print("Training loss:", total_train_loss)
 
-            
+            total_val_loss = None
             if val_loader is not None:
-                # Not using these now, but could in the future if wanted to stop on validation loss
-                running_val_acc, total_val_loss = self.compute_validation_accuracy(val_loader, running_val_acc, total_val_loss)
+                total_val_loss = self.compute_validation_accuracy(val_loader)
 
             if save_all_models or (epoch==n_epochs-1):
                 self.save_model(epoch, total_train_loss, total_val_loss=total_val_loss)
@@ -128,18 +120,17 @@ class UNetTrainer():
             return running_acc_update, running_sample_count_update
 
 
-    def compute_validation_accuracy(self, val_loader, running_val_acc, total_val_loss):
+    def compute_validation_accuracy(self, val_loader):
         running_sample_count = 0
-
-        y_pred_all, y_true_all = [], []
+        total_val_loss = 0
+        running_val_acc = 0
+        #y_pred_all, y_true_all = [], []
 
         with torch.no_grad():
             for inputs, y_true in val_loader:
 
                 # Wrap tensors in Variables
-                inputs, y_true = Variable(
-                    inputs.to(self.device)), Variable(
-                    y_true.to(self.device))
+                inputs, y_true = Variable(inputs.to(self.device)), Variable(y_true.to(self.device))
 
                 # Forward pass only
                 val_outputs = self.network(inputs)
@@ -169,7 +160,7 @@ class UNetTrainer():
 
         print( "Validation loss = {:.4e}   acc = {:4.2f}%".format(total_val_loss, 100*total_val_acc))
 
-        return running_val_acc, total_val_loss
+        return total_val_loss
 
     def save_model(self, epoch, total_train_loss, total_val_loss=None):
         filename = '%s/model_%s_%03d.pt'% (self.model_path, self.phase_type, epoch)
