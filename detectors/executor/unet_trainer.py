@@ -62,6 +62,10 @@ class UNetTrainer():
             total_train_loss = 0
             running_sample_count = 0
 
+            total_val_loss = 0
+            total_val_acc = 0
+            running_val_acc = 0
+
             for i, batch in enumerate(train_loader, 0):
                 
                 inputs, y_true = batch
@@ -99,7 +103,7 @@ class UNetTrainer():
             total_val_loss = None
             if val_loader is not None:
                 # Not using these now, but could in the future if wanted to stop on validation loss
-                total_val_acc, total_val_loss = self.compute_validation_accuracy(val_loader)
+                running_val_acc, total_val_loss = self.compute_validation_accuracy(val_loader, running_val_acc, total_val_loss)
 
             if save_all_models or (epoch==n_epochs-1):
                 self.save_model(epoch, total_train_loss, total_val_loss=total_val_loss)
@@ -119,6 +123,50 @@ class UNetTrainer():
             running_sample_count_update = torch.numel(y_true)
 
             return running_acc_update, running_sample_count_update
+
+
+    def compute_validation_accuracy(self, val_loader, running_val_acc, total_val_loss):
+        running_sample_count = 0
+
+        y_pred_all, y_true_all = [], []
+
+        with torch.no_grad():
+            for inputs, y_true in val_loader:
+
+                # Wrap tensors in Variables
+                inputs, y_true = Variable(
+                    inputs.to(self.device)), Variable(
+                    y_true.to(self.device))
+
+                # Forward pass only
+                val_outputs = self.network(inputs)
+                val_outputs = torch.sigmoid(val_outputs)
+                val_loss = self.loss_fn(val_outputs, y_true)
+                total_val_loss += val_loss.item()
+
+                # Calculate categorical accuracy
+                y_pred = torch.zeros(val_outputs.data.size()).to(self.device)
+                y_pred[val_outputs >= 0.5] = 1
+
+                # Compute the pick times
+                y_pred = y_pred.cpu().numpy()
+                y_true = y_true.cpu().numpy()
+
+                y_pred_all.append(y_pred.flatten())
+                y_true_all.append(y_true.flatten())
+
+                #y_pred_all.append(y_pred.cpu().numpy().flatten())
+                #y_true_all.append(y_true.cpu().numpy().flatten())
+
+                running_val_acc += (y_pred == y_true).sum().item()
+                running_sample_count += torch.numel(y_true)
+
+        total_val_loss /= len(val_loader)
+        total_val_acc = running_val_acc / running_sample_count
+
+        print( "Validation loss = {:.4e}   acc = {:4.2f}%".format(total_val_loss, 100*total_val_acc))
+
+        return running_val_acc, total_val_loss
 
     def save_model(self, epoch, total_train_loss, total_val_loss=None):
         filename = '%s/model_%s_%03d.pt'% (self.model_path, self.phase_type, epoch)
