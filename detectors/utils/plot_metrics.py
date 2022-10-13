@@ -169,7 +169,8 @@ def plot_mew_hist(df_valid_resid, epoch, bins=np.arange(-50, 50, 1), epoch_key="
     plt.legend()
     plt.show()
 
-def plot_magnitude_difference_vs_residual(df_valid_resid, df_valid, epoch, epoch_key="epoch"):
+def plot_magnitude_difference_vs_residual(df_valid_resid, df_valid, epoch, epoch_key="epoch", 
+                                          cmap="Reds", cbar_max=None, bin_dims=(20, 200)):
     df_epoch = df_valid_resid[df_valid_resid[epoch_key] == epoch]
     
     even_rows = np.arange(0, len(df_epoch), 2)
@@ -179,24 +180,26 @@ def plot_magnitude_difference_vs_residual(df_valid_resid, df_valid, epoch, epoch
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
 
-    axes[0].scatter(magnitude_diffs, df_epoch.iloc[even_rows].residual, alpha=0.2)
-    axes[1].scatter(magnitude_diffs, df_epoch.iloc[odd_rows].residual, alpha=0.2)
+    h = axes[0].hist2d(magnitude_diffs, df_epoch.iloc[even_rows].residual, bins=bin_dims, cmin=1, cmap=cmap, vmax=cbar_max);
+    h2 = axes[1].hist2d(magnitude_diffs, df_epoch.iloc[odd_rows].residual, bins=bin_dims, cmin=1, cmap=cmap,
+                            vmin=1, vmax=np.max([np.nanmax(h[0]), cbar_max]));
 
-    axes[0].set_ylabel("Pick Residual (samples)")
-    axes[1].set_xlabel("Magnitude Difference (First event - second event)")
+    axes[0].set_ylabel("Pick Residual (samples)", fontsize=14)
+    axes[1].set_xlabel("Magnitude Difference (First event - second event)", fontsize=14)
     axes[1].xaxis.set_label_coords(-0.15, -.1)
     axes[0].set_ylim([-520, 520])
     axes[1].set_ylim([-520, 520])
     axes[1].set_yticks([])
-    axes[0].set_title("First Event")
-    axes[1].set_title("Second Event")
+    axes[0].set_title("First Event", fontsize=16)
+    axes[1].set_title("Second Event", fontsize=16)
+    plt.colorbar(h2[3], ax=axes)
 
     plt.figure()
     plt.scatter(magnitude_diffs, df_epoch.iloc[odd_rows].residual, alpha=0.2, label="Second event")
     plt.scatter(magnitude_diffs, df_epoch.iloc[even_rows].residual, alpha=0.2, label="First event")
 
-    plt.ylabel("Pick Residual (samples)")
-    plt.xlabel("Mangitude Difference (First event - second event)")
+    plt.ylabel("Pick Residual (samples)", fontsize=14)
+    plt.xlabel("Mangitude Difference (First event - second event)", fontsize=14)
     plt.legend()
 
 def plot_precision_recall(df, opt_model, is_p_wave = True):
