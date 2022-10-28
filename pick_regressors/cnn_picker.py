@@ -12,6 +12,7 @@ from utils.model_helpers import NumpyDataset
 from pick_regressors.process_pick_data import randomize_start_times_and_normalize
 from pick_regressors.pick_trainer import PickTrainer
 from pick_regressors.pick_evaluator import PickEvaluator
+import random
 
 class Picker(BaseModel):
     def __init__(self, config):
@@ -31,8 +32,6 @@ class Picker(BaseModel):
         self.phase_type = self.config.model.phase_type
         self.freeze_convolutional_layers = self.config.model.freeze_convolutional_layers
         self.random_seed = self.config.model.random_seed
-        np.random.seed(self.random_seed)
-        torch.manual_seed(self.random_seed)
 
         # Data Config Params
         self.time_series_len = self.config.data.time_series_length
@@ -46,6 +45,25 @@ class Picker(BaseModel):
         self.evaluation_epoch = -1  # Epoch that is being evaluate - -1 if model not trained/loaded\
         self.results_out_dir = None  # f"{self.model_out_dir}/results"
 
+        # I don't think ensembling needs to be produce deterministic models - just ensure they have random initial states
+        np.random.seed(self.random_seed)
+        random.seed(self.random_seed)
+        torch.manual_seed(self.random_seed)
+        torch.cuda.manual_seed(self.random_seed)
+
+    def _set_deterministic_random_seed(self):
+        """Followed instructions from
+        https://wandb.ai/sauravmaheshkar/RSNA-MICCAI/reports/How-to-Set-Random-Seeds-in-PyTorch-and-Tensorflow--
+        VmlldzoxMDA2MDQy"""
+        np.random.seed(self.random_seed)
+        random.seed(self.random_seed)
+        torch.manual_seed(self.random_seed)
+        torch.cuda.manual_seed(self.random_seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        # Set a fixed value for the hash seed
+        os.environ["PYTHONHASHSEED"] = str(self.random_seed)
+        print(f"Random seed set as {self.random_seed}")
 
     def set_results_out_dir(self, test_type):
         outdir = f"{self.model_out_dir}/{test_type}_results"
@@ -60,7 +78,8 @@ class Picker(BaseModel):
         # TODO: This didn't work if data_file path is relative to the main script location
         with h5py.File(data_file, "r") as f:
             X = f['X'][:] # [:, :, 2:3] - test 1C
-        return X
+            Y = f['Y'][:]
+        return X, Y
 
     def load_model_state(self, model_in):
         if self.evaluation_epoch > 0:
@@ -80,11 +99,11 @@ class Picker(BaseModel):
 
     def load_data(self, data_file, batch_size, n_dups, shuffle=True):
         # TODO: This didn't work if data_file path is relative to the main script location
-        X = self.read_data(data_file)
+        X, Y = self.read_data(data_file)
         print("Randomizing start times")
-        X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
-                                                               max_dt=self.max_dt, dt=self.dt, n_duplicate=n_dups,
-                                                                random_seed=self.random_seed)
+        # X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
+        #                                                        max_dt=self.max_dt, dt=self.dt, n_duplicate=n_dups,
+        #                                                         random_seed=self.random_seed)
 
         dataset = NumpyDataset(X, Y)
 
@@ -110,17 +129,19 @@ class Picker(BaseModel):
             print("Freezing convolutional layers...")
             self.model.freeze_convolutional_layers()
 
-        trainer = PickTrainer(self.model, optimizer, model_path=self.model_path, device=self.device, random_seed=self.random_seed)
+        trainer = PickTrainer(self.model, optimizer, model_path=self.model_path, device=self.device,
+                              random_seed=self.random_seed)
         trainer.train(train_loader, validation_loader, self.train_epochs)
         self.evaluation_epoch = self.train_epochs
 
     # TODO: add in is_stead flag from uncledeadly code
-    def evaluate_specified_models(self, test_h5, test_csv, epochs, test_type, batch_size=None, shift_pred=True):
-        X = self.read_data(test_h5)
+    def evaluate_specified_models(self, test_h5, test_csv, epochs, test_type, batch_size=None, shift_pred=True,
+                                  is_stead=False):
+        X , Y= self.read_data(test_h5)
         df = pd.read_csv(test_csv)
-        X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
-                                                               max_dt=self.max_dt, dt=self.dt, n_duplicate=1,
-                                                               random_seed=self.random_seed)
+        # X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
+        #                                                        max_dt=self.max_dt, dt=self.dt, n_duplicate=1,
+        #                                                        random_seed=self.random_seed)
         X = X.transpose((0, 2, 1))
         if self.evaluation_epoch >= 0:
             print("Can't do multi-model evaluation with model state loaded")
@@ -134,7 +155,7 @@ class Picker(BaseModel):
         evaluator = PickEvaluator(self.model, self.device, self.time_series_len, self.dt, batch_size, 
                                     self.model_out_dir, self.results_out_dir, random_seed=self.random_seed)
 
-        evaluator.apply_model(df, X, Y, epochs, test_type, do_shift=shift_pred)
+        evaluator.apply_model(df, X, Y, epochs, test_type, do_shift=shift_pred, is_stead=is_stead)
 
     def evaluate(self):
         pass
