@@ -5,6 +5,7 @@ import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import random # don't use for anything but setting the seed ...
 
 import sys
 sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl/utils")
@@ -23,8 +24,10 @@ class PickEvaluator():
         if random_seed is not None:
             np.random.seed(random_seed)
             torch.manual_seed(random_seed)
+            torch.cuda.manual_seed(random_seed)
+            random.seed(random_seed)
 
-    def apply_model(self, df, X_test, y_test, epochs, test_type, do_shift=True):
+    def apply_model(self, df, X_test, y_test, epochs, test_type, do_shift=True, is_stead=False):
         results_df_name = f"{self.outdir}/{test_type}_results.csv"
         residuals_outname_pref = f"{self.outdir}/{test_type}_residuals.txt"
         predictions_outname_pref = f"{self.outdir}/{test_type}_predictions.txt"
@@ -33,9 +36,14 @@ class PickEvaluator():
         if (not os.path.exists(figure_dir)):
             os.makedirs(figure_dir)
 
-        current_eq_rows = np.arange(0, len(df))[ (df['event_type'] == 'le') & (df['evid'] >= 60000000) ]
-        current_blast_rows = np.arange(0, len(df))[df['event_type'] == 'qb']
-        historical_eq_rows = np.arange(0, len(df))[(df['event_type'] == 'le') & (df['evid'] < 60000000) ]
+        if not is_stead:
+            current_eq_rows = np.arange(0, len(df))[ (df['event_type'] == 'le') & (df['evid'] >= 60000000) ]
+            current_blast_rows = np.arange(0, len(df))[df['event_type'] == 'qb']
+            historical_eq_rows = np.arange(0, len(df))[(df['event_type'] == 'le') & (df['evid'] < 60000000) ]
+        else:
+            current_eq_rows = np.arange(len(df))
+            current_blast_rows = []
+            historical_eq_rows = []
 
         n_rows = len(y_test)
         y_pred = np.zeros(len(y_test))
@@ -183,11 +191,12 @@ class PickEvaluator():
 
             all_results.append(results)
 
-            zero_weight = abs(df['pick_quality'] - 1.00) < 1.e-4
-            one_weight  = abs(df['pick_quality'] - 0.75) < 1.e-4
-            two_weight  = abs(df['pick_quality'] - 0.50) < 1.e-4
-            zero_close_weight = (abs(df['pick_quality'] - 0.75) < 1.e-4) & (df['source_receiver_distance'] <= 10) & (df['event_type'] == 'le')
-            zero_far_weight = (abs(df['pick_quality'] - 0.75) < 1.e-4) & (df['source_receiver_distance'] > 10) & (df['event_type'] == 'le')
+            if not is_stead:
+                zero_weight = abs(df['pick_quality'] - 1.00) < 1.e-4
+                one_weight  = abs(df['pick_quality'] - 0.75) < 1.e-4
+                two_weight  = abs(df['pick_quality'] - 0.50) < 1.e-4
+                zero_close_weight = (abs(df['pick_quality'] - 0.75) < 1.e-4) & (df['source_receiver_distance'] <= 10) & (df['event_type'] == 'le')
+                zero_far_weight = (abs(df['pick_quality'] - 0.75) < 1.e-4) & (df['source_receiver_distance'] > 10) & (df['event_type'] == 'le')
 
             fname = model_to_test.split("/")[-1].replace('.pt', '_resid_quality.jpg')
             #fname = fname.replace('/', '_')
@@ -198,9 +207,10 @@ class PickEvaluator():
             #plt.hist(residuals[zero_weight], range=(-0.3,0.3), bins=61, align='mid', edgecolor='black', color='orange', alpha = 0.85, label='Zero Weight')
             #plt.hist(residuals[zero_far_weight], range=(-0.3,0.3), bins=61, align='mid', edgecolor='black', color='blue', alpha = 0.85, label='Zero Weight >= 10km')
             #plt.hist(residuals[zero_close_weight], range=(-0.3,0.3), bins=61, align='mid', edgecolor='black', color='red', alpha = 0.85, label='Zero Weight < 10km')
-            plt.hist(residuals[zero_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='blue', alpha = 1, label='Zero Weight')
-            plt.hist(residuals[one_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='red', alpha = 1, label='One Weight')
-            plt.hist(residuals[two_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='yellow', alpha = 1, label='Two Weight')
+            if not is_stead:
+                plt.hist(residuals[zero_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='blue', alpha = 1, label='Zero Weight')
+                plt.hist(residuals[one_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='red', alpha = 1, label='One Weight')
+                plt.hist(residuals[two_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='yellow', alpha = 1, label='Two Weight')
             xticks = [-0.30, -0.20, -0.10, -0.05, 0, 0.05, 0.10, 0.20, 0.30]
             plt.xlim([min(xticks), max(xticks)])
             plt.xticks(xticks)

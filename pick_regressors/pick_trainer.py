@@ -4,6 +4,7 @@ import os
 import numpy as np
 import sys
 from torch.autograd import Variable
+import random # don't use for anything but setting the seed ...
 
 sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis-proc-dl/utils")
 from utils.model_helpers import get_n_params, compute_outer_fence_mean_standard_deviation
@@ -18,6 +19,8 @@ class PickTrainer():
         if random_seed is not None:
             np.random.seed(random_seed)
             torch.manual_seed(random_seed)
+            torch.cuda.manual_seed(random_seed)
+            random.seed(random_seed)
 
     def train(self, train_loader, val_loader, n_epochs):
         self.network.train()
