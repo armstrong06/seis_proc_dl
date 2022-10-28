@@ -14,6 +14,27 @@ from pick_regressors.pick_trainer import PickTrainer
 from pick_regressors.pick_evaluator import PickEvaluator
 import random
 
+# I feel like it is better to set the seed in the script globally, as opposed to in the CNNPicker Class
+def set_seed(seed):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+def set_deterministic_random_seed(seed):
+    """Followed instructions from
+    https://wandb.ai/sauravmaheshkar/RSNA-MICCAI/reports/How-to-Set-Random-Seeds-in-PyTorch-and-Tensorflow--
+    VmlldzoxMDA2MDQy"""
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
+
 class Picker(BaseModel):
     def __init__(self, config):
         super().__init__(config)
@@ -46,24 +67,7 @@ class Picker(BaseModel):
         self.results_out_dir = None  # f"{self.model_out_dir}/results"
 
         # I don't think ensembling needs to be produce deterministic models - just ensure they have random initial states
-        np.random.seed(self.random_seed)
-        random.seed(self.random_seed)
-        torch.manual_seed(self.random_seed)
-        torch.cuda.manual_seed(self.random_seed)
-
-    def _set_deterministic_random_seed(self):
-        """Followed instructions from
-        https://wandb.ai/sauravmaheshkar/RSNA-MICCAI/reports/How-to-Set-Random-Seeds-in-PyTorch-and-Tensorflow--
-        VmlldzoxMDA2MDQy"""
-        np.random.seed(self.random_seed)
-        random.seed(self.random_seed)
-        torch.manual_seed(self.random_seed)
-        torch.cuda.manual_seed(self.random_seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-        # Set a fixed value for the hash seed
-        os.environ["PYTHONHASHSEED"] = str(self.random_seed)
-        print(f"Random seed set as {self.random_seed}")
+        set_seed(self.random_seed)
 
     def set_results_out_dir(self, test_type):
         outdir = f"{self.model_out_dir}/{test_type}_results"
