@@ -138,7 +138,6 @@ class Picker(BaseModel):
         trainer.train(train_loader, validation_loader, self.train_epochs)
         self.evaluation_epoch = self.train_epochs
 
-    # TODO: add in is_stead flag from uncledeadly code
     def evaluate_specified_models(self, test_h5, epochs, test_type, batch_size=None, shift_pred=True, test_csv=None):
         X , Y= self.read_data(test_h5)
         df = None
