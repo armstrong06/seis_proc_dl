@@ -139,10 +139,12 @@ class Picker(BaseModel):
         self.evaluation_epoch = self.train_epochs
 
     # TODO: add in is_stead flag from uncledeadly code
-    def evaluate_specified_models(self, test_h5, test_csv, epochs, test_type, batch_size=None, shift_pred=True,
-                                  is_stead=False):
+    def evaluate_specified_models(self, test_h5, epochs, test_type, batch_size=None, shift_pred=True, test_csv=None):
         X , Y= self.read_data(test_h5)
-        df = pd.read_csv(test_csv)
+        df = None
+        if test_csv is not None:
+            df = pd.read_csv(test_csv)
+
         # X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
         #                                                        max_dt=self.max_dt, dt=self.dt, n_duplicate=1,
         #                                                        random_seed=self.random_seed)
@@ -159,7 +161,7 @@ class Picker(BaseModel):
         evaluator = PickEvaluator(self.model, self.device, self.time_series_len, self.dt, batch_size, 
                                     self.model_out_dir, self.results_out_dir, random_seed=self.random_seed)
 
-        evaluator.apply_model(df, X, Y, epochs, test_type, do_shift=shift_pred, is_stead=is_stead)
+        evaluator.apply_model(X, Y, epochs, test_type, df=df, do_shift=shift_pred)
 
     def evaluate(self):
         pass

@@ -27,7 +27,7 @@ class PickEvaluator():
             torch.cuda.manual_seed(random_seed)
             random.seed(random_seed)
 
-    def apply_model(self, df, X_test, y_test, epochs, test_type, do_shift=True, is_stead=False):
+    def apply_model(self, X_test, y_test, epochs, test_type, df=None, do_shift=True):
         results_df_name = f"{self.outdir}/{test_type}_results.csv"
         residuals_outname_pref = f"{self.outdir}/{test_type}_residuals.txt"
         predictions_outname_pref = f"{self.outdir}/{test_type}_predictions.txt"
@@ -36,12 +36,12 @@ class PickEvaluator():
         if (not os.path.exists(figure_dir)):
             os.makedirs(figure_dir)
 
-        if not is_stead:
+        if df is not None:
             current_eq_rows = np.arange(0, len(df))[ (df['event_type'] == 'le') & (df['evid'] >= 60000000) ]
             current_blast_rows = np.arange(0, len(df))[df['event_type'] == 'qb']
             historical_eq_rows = np.arange(0, len(df))[(df['event_type'] == 'le') & (df['evid'] < 60000000) ]
         else:
-            current_eq_rows = np.arange(len(df))
+            current_eq_rows = np.arange(X_test.shape[0])
             current_blast_rows = []
             historical_eq_rows = []
 
@@ -191,7 +191,7 @@ class PickEvaluator():
 
             all_results.append(results)
 
-            if not is_stead:
+            if df is not None:
                 zero_weight = abs(df['pick_quality'] - 1.00) < 1.e-4
                 one_weight  = abs(df['pick_quality'] - 0.75) < 1.e-4
                 two_weight  = abs(df['pick_quality'] - 0.50) < 1.e-4
@@ -207,7 +207,7 @@ class PickEvaluator():
             #plt.hist(residuals[zero_weight], range=(-0.3,0.3), bins=61, align='mid', edgecolor='black', color='orange', alpha = 0.85, label='Zero Weight')
             #plt.hist(residuals[zero_far_weight], range=(-0.3,0.3), bins=61, align='mid', edgecolor='black', color='blue', alpha = 0.85, label='Zero Weight >= 10km')
             #plt.hist(residuals[zero_close_weight], range=(-0.3,0.3), bins=61, align='mid', edgecolor='black', color='red', alpha = 0.85, label='Zero Weight < 10km')
-            if not is_stead:
+            if df is not None:
                 plt.hist(residuals[zero_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='blue', alpha = 1, label='Zero Weight')
                 plt.hist(residuals[one_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='red', alpha = 1, label='One Weight')
                 plt.hist(residuals[two_weight], range=(-0.5,0.5), bins=101, align='mid', edgecolor='black', color='yellow', alpha = 1, label='Two Weight')
