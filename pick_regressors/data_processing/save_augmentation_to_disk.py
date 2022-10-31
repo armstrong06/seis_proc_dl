@@ -10,10 +10,10 @@ max_dt=0.7
 dt=0.01
 n_duplicate=1
 random_seed=82323
-pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/scsn_stead_pickers/s_resampled_picker"
-split_type = "test"
-input_file = f"{pref}/s_picker_{split_type}.h5"
-output_file = f"{pref}/augmented/s_picker_{split_type}_{int(time_series_len*dt)}s_{n_duplicate}dup.h5"
+pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker/s_resampled_picker"
+split_type = "test_fewerhist"
+input_file = f"{pref}/uuss_{split_type}.h5"
+output_file = f"{pref}/augmented/uuss_{split_type}_{int(time_series_len*dt)}s_{n_duplicate}dup.h5"
 
 print(f"time_series_len: {time_series_len}, max_dt: {max_dt}, dt: {dt}, n_duplicate: {n_duplicate}, random_seed: {random_seed}")
 print(f"input file: {input_file}")
