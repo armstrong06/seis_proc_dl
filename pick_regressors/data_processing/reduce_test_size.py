@@ -5,8 +5,8 @@ import pandas as pd
 import numpy as np
 
 #%%
-
-df = pd.read_csv("p_picker_resampled/uuss_test.csv")
+pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker/s_resampled_picker"
+df = pd.read_csv(f"{pref}/uuss_test.csv")
 historical_df = df[(df['event_type'] == 'le') & (df['evid'] < 60000000) ]# %%
 qb_df = df[df['event_type'] == 'qb']
 len(df) - len(historical_df) - len(qb_df)
@@ -26,7 +26,7 @@ hist_keep_inds = np.unique(np.random.choice(historical_df.index, size=n_hist, re
 other_inds = np.arange(len(df)-len(historical_df))
 all_inds_new = np.concatenate([other_inds, hist_keep_inds])
 #%%
-f = h5py.File("p_picker_resampled/uuss_test.h5", "r")
+f = h5py.File(f"{pref}/uuss_test.h5", "r")
 X = f["X"][:]
 Y = f["Y"][:]
 f.close()
@@ -39,10 +39,10 @@ df_smaller = df.iloc[all_inds_new]
 assert len(df_smaller) == X_smaller.shape[0] and len(df_smaller)== Y_smaller.shape[0]
 # %%
 
-f = h5py.File("p_picker_resampled/uuss_test_fewerhist.h5", "w")
+f = h5py.File(f"{pref}/uuss_test_fewerhist.h5", "w")
 f.create_dataset("X", data=X_smaller)
 f.create_dataset("Y", data=Y_smaller)
 f.close()
 
-df_smaller.to_csv("p_picker_resampled/uuss_test_fewerhist.csv")
+df_smaller.to_csv(f"{pref}/uuss_test_fewerhist.csv")
 # %%
