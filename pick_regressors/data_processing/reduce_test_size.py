@@ -3,9 +3,9 @@
 import h5py 
 import pandas as pd
 import numpy as np
-
+np.random.seed(3175)
 #%%
-pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker/s_resampled_picker"
+pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pPicker/p_picker_resampled_locationgrid"
 df = pd.read_csv(f"{pref}/uuss_test.csv")
 historical_df = df[(df['event_type'] == 'le') & (df['evid'] < 60000000) ]# %%
 qb_df = df[df['event_type'] == 'qb']
@@ -22,7 +22,7 @@ assert np.array_equal(historical_df.index.values, range(len(df)-len(historical_d
 
 percent_test_hist = 0.20
 n_hist = int((len(df)-len(historical_df) - len(qb_df))*percent_test_hist)
-hist_keep_inds = np.unique(np.random.choice(historical_df.index, size=n_hist, replace=False))
+hist_keep_inds = np.random.choice(historical_df.index, size=n_hist, replace=False)
 other_inds = np.arange(len(df)-len(historical_df))
 all_inds_new = np.concatenate([other_inds, hist_keep_inds])
 #%%

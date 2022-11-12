@@ -7,13 +7,18 @@ import h5py
 import numpy as np
 
 pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker"
-outdir = f'{pref}/s_resampled_picker/uuss'
+outdir = f'{pref}/s_resampled_picker_locationgrid/uuss'
 
 # NGB swarm bounds
-lat_min = 44.680
-lat_max = 44.870
-lon_max = 110.850
-lon_min = 110.640
+# lat_min = 44.680
+# lat_max = 44.870
+# lon_max = 110.850
+# lon_min = 110.640
+# Larger location grid bounds
+lat_min = 44.35
+lat_max = 45.0
+lon_max = 111.46
+lon_min = 110.1
 date_min = 130901  # YYMMDD
 date_max = 140630  # YYMMDD
 
@@ -82,5 +87,5 @@ spliter.write_data_and_dataframes(outdir,
                               X_validation, y_validation, validation_df,
                               X_test, y_test, test_df)
 
-extract_events.write_h5file(NGB_data[0], NGB_data[1], f"{outdir}_NGB.h5")
-NGB_data[2].to_csv(f"{outdir}_NGB.csv", index=False)
+extract_events.write_h5file(NGB_data[0], NGB_data[1], f"{outdir}_LocationGrid.h5")
+NGB_data[2].to_csv(f"{outdir}_LocationGrid.csv", index=False)
