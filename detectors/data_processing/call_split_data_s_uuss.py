@@ -21,16 +21,22 @@ ys_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseYellowstoneWaveformsPermuted.h
 magna_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseMagnaWaveformsPermuted.P.10s.h5'
 
 pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector'
-outdir = "NEW_S_resampled_10s"
+outdir = "constant_bc_width/LG_s_resampled_10s"
 
 # For NGB events - Don't need these for STEAD data
 # Remove events within these bounds
-lat_min = 44.680
-lat_max = 44.870
-lon_max = 110.850
-lon_min = 110.640
+# lat_min = 44.680
+# lat_max = 44.870
+# lon_max = 110.850
+# lon_min = 110.640
+# Larger location grid bounds
+lat_min = 44.35
+lat_max = 45.0
+lon_max = 111.46
+lon_min = 110.1
 date_min = 130901  # YYMMDD
 date_max = 140630  # YYMMDD
+extracted_name =  "LocationGrid"
 
 ################ End Set Params ####################
 
@@ -45,7 +51,7 @@ bounds = {"lat_min": lat_min,
           "date_min": date_min,
           "date_max": date_max}
 
-extract_events_params = {"bounds":bounds, "name":"NGB"}
+extract_events_params = {"bounds":bounds, "name":extracted_name}
 
 ## Current Earthquakes
 h5_filename = f'{pref}/S_current_earthquake_catalog.h5'
