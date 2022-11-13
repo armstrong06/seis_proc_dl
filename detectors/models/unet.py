@@ -12,6 +12,28 @@ from executor.unet_trainer import UNetTrainer
 from evaluation.unet_evaluator import UNetEvaluator
 from evaluation.mulitple_model_evaluation import MultiModelEval
 import pandas as pd
+import random
+
+def set_seed(seed):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+def set_deterministic_random_seed(seed):
+    """Followed instructions from
+    https://wandb.ai/sauravmaheshkar/RSNA-MICCAI/reports/How-to-Set-Random-Seeds-in-PyTorch-and-Tensorflow--
+    VmlldzoxMDA2MDQy"""
+    print("Setting deterministic seed...")
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # Set a fixed value for the hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    print(f"Random seed set as {seed}")
 
 class UNet(BaseModel):
     def __init__(self, config):
@@ -44,12 +66,14 @@ class UNet(BaseModel):
             seed = self.config.model.seed
         except:
             seed = 3940
-            print("Setting random seed to", seed)
 
         if seed >= 0:
-            np.random.seed(seed)
-            torch.manual_seed(seed)
+            # np.random.seed(seed)
+            # torch.manual_seed(seed)
+            print("Setting random seed to", seed)
+            set_deterministic_random_seed(seed)
         else:
+            print("No random seed set")
             seed = None
 
         self.seed = seed

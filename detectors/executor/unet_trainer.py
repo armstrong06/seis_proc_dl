@@ -4,7 +4,7 @@ import torch
 from torch.autograd import Variable
 import numpy as np
 from sklearn.metrics import classification_report
-
+import random
 from utils.model_helpers import clamp_presigmoid_values
 
 class UNetTrainer():
@@ -22,6 +22,8 @@ class UNetTrainer():
         if random_seed is not None:
             np.random.seed(random_seed)
             torch.manual_seed(random_seed)
+            torch.cuda.manual_seed(random_seed)
+            random.seed(random_seed)
 
         if (not os.path.exists(self.model_path)):
             os.makedirs(self.model_path)

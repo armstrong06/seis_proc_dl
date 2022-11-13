@@ -27,6 +27,7 @@ class UNetEvaluator():
         if random_seed is not None:
             np.random.seed(random_seed)
             torch.manual_seed(random_seed)
+            torch.cuda.manual_seed(random_seed)
 
     def get_n_params(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
