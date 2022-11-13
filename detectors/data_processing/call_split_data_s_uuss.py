@@ -58,10 +58,10 @@ h5_filename = f'{pref}/S_current_earthquake_catalog.h5'
 meta_file = f'{pref}/S_current_earthquake_catalog.csv'
 outpref = f"{pref}/{outdir}/currenteq."
 
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, outfile_pref=outpref)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, boxcar_widths, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file)
 spliter.split_signal(train_frac, test_frac, extract_events_params=extract_events_params)
-spliter.process_signal(boxcar_widths=boxcar_widths)
+spliter.process_signal()
 
 spliter.load_noise_data([ys_noise_h5_filename, magna_noise_h5_filename])
 spliter.split_noise(noise_train_frac, test_frac)
@@ -76,10 +76,10 @@ ceq_train_noise_df, ceq_test_noise_df, ceq_validate_noise_df = spliter.return_no
 # Blast catalog
 h5_filename = f'{pref}/S_current_blast_catalog_3c.h5'
 meta_file = f'{pref}/S_current_blast_catalog_3c.csv'
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type, boxcar_widths)
 spliter.load_signal_data(h5_filename, meta_file, min_training_quality=0.5)
 spliter.split_signal(0.4, 0.96, extract_events_params=None)
-spliter.process_signal(boxcar_widths=boxcar_widths)
+spliter.process_signal()
 cbl_train,cbl_test,cbl_validate = spliter.return_signal()
 cbl_train_df, cbl_test_df, cbl_validate_df = spliter.return_signal_meta()
 
@@ -87,10 +87,10 @@ cbl_train_df, cbl_test_df, cbl_validate_df = spliter.return_signal_meta()
 h5_filename = f'{pref}/S_historical_earthquake_catalog.h5'
 meta_file = f'{pref}/S_historical_earthquake_catalog.csv'
 outpref = f"{pref}/{outdir}/combined."
-spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type, outfile_pref=outpref)
+spliter = SplitDetectorData(window_duration, dt, max_pick_shift, 1, phase_type, boxcar_widths, outfile_pref=outpref)
 spliter.load_signal_data(h5_filename, meta_file, min_training_quality=0.75)
 spliter.split_signal(0.2, 0.98, extract_events_params=None)
-spliter.process_signal(boxcar_widths=boxcar_widths)
+spliter.process_signal()
 heq_train,heq_test,heq_validate = spliter.return_signal()
 heq_train_df, heq_test_df, heq_validate_df = spliter.return_signal_meta()
 

@@ -14,7 +14,8 @@ np.random.seed(49230)
 class SplitDetectorData():
     # TODO: I do not know that this is the best way to implement this class
 
-    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, outfile_pref=None, target_shrinkage=None,
+    def __init__(self, window_duration, dt, max_pick_shift, n_duplicate_train, phase_type, boxcar_widths,
+                 outfile_pref=None, target_shrinkage=None,
                  pick_sample=None, normalize_seperate=True): #, reorder_waveforms=False):
         self.window_duration = window_duration
         self.dt = dt
@@ -26,6 +27,7 @@ class SplitDetectorData():
         self.normalize_seperate = normalize_seperate
         self.phase_type = phase_type
         #self.reorder = reorder_waveforms # Switch the first and last channels of data - Want ENZ
+        self.boxcar_widths = boxcar_widths
 
         if self.outfile_pref is not None:
             self.__make_directory()
@@ -163,7 +165,7 @@ class SplitDetectorData():
             self.signal_test = (X[test_rows, :, :], Y[test_rows])
             self.signal_test_meta = meta_df.iloc[test_rows]
 
-    def process_signal(self, boxcar_widths={0: 21, 1: 31, 2: 51}):
+    def process_signal(self):
         """
         Process the signal splits 
         """
@@ -171,21 +173,21 @@ class SplitDetectorData():
         self.signal_train \
             = self.__augment_data(self.signal_train[0], self.signal_train[1], self.n_duplicate_train,
                         target_shrinkage = self.target_shrinkage, lrand=True, for_python=True,
-                                  meta_for_boxcar=self.signal_train_meta, boxcar_widths=boxcar_widths)
+                                  meta_for_boxcar=self.signal_train_meta)
 
         if (self.signal_validate is not None):
             print("Creating signal validation dataset...")
             self.signal_validate \
                 = self.__augment_data(self.signal_validate[0], self.signal_validate[1], 1,
                             target_shrinkage = self.target_shrinkage, lrand=True, for_python=True,
-                                      meta_for_boxcar=self.signal_validate_meta, boxcar_widths=boxcar_widths)
+                                      meta_for_boxcar=self.signal_validate_meta)
 
         if (self.signal_test is not None):
             print("Creating signal test dataset...")
             self.signal_test \
-                = self.__augment_data(self.signal_test[0], self.signal_test[1], 1, 
+                = self.__augment_data(self.signal_test[0], self.signal_test[1], 1,
                             target_shrinkage = self.target_shrinkage, lrand=True, for_python=True,
-                                      meta_for_boxcar=self.signal_test_meta, boxcar_widths=boxcar_widths)
+                                      meta_for_boxcar=self.signal_test_meta)
 
     def split_noise(self, 
                 noise_train_frac = 0.8, # e.g., keep 0.8 pct of noise for training and 0.2 pct for validation, 
@@ -309,7 +311,7 @@ class SplitDetectorData():
 
     def __augment_data(self, X, Y, n_duplicate,
                     target_shrinkage = None,
-                    lrand = True, for_python=True, meta_for_boxcar=None, boxcar_widths={0: 21, 1: 31, 2: 51}):
+                    lrand = True, for_python=True, meta_for_boxcar=None):
         # Determine the sizes of the data
         print("initial", X.shape, Y.shape)
 
@@ -420,9 +422,9 @@ class SplitDetectorData():
                     Y_new[idup*n_obs+iobs, :] = Y[iobs, start_index+start_y:end_index-end_y]
 
         if meta_for_boxcar is not None:
-            print("Using boxcar widths", boxcar_widths)
+            print("Using boxcar widths", self.boxcar_widths)
             meta_for_boxcar = meta_for_boxcar.append([meta_for_boxcar] * (n_duplicate - 1))
-            Y_new = boxcar.add_boxcar(meta_for_boxcar, boxcar_widths, X_new, Y, T_index)
+            Y_new = boxcar.add_boxcar(meta_for_boxcar, self.boxcar_widths, X_new, Y, T_index)
 
         print("final", X_new.shape, Y_new.shape, T_index.shape)
         assert X_new.shape[0] == Y_new.shape[0] and Y_new.shape[0] == T_index.shape[0], "New sizes do not match"
