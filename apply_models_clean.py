@@ -21,14 +21,7 @@ from utils.model_helpers import clamp_presigmoid_values
 from detectors.models.unet import UNetModel
 from pick_regressors.cnn_picker import CNNNet
 from fm_classifiers.train_fm import FMNet
-
-from scipy.signal import iirfilter
-try:
-    from scipy.signal import sosfilt
-    from scipy.signal import zpk2sos
-except ImportError:
-    from ._sosfilt import _sosfilt as sosfilt
-    from ._sosfilt import _zpk2sos as zpk2sos
+from utils.config import Config
 
 sys.path.append("/home/armstrong/Research/git_repos/patprob/swag_modified")
 from swag import seismic_data as swag_seismic_data
@@ -50,9 +43,9 @@ class Dset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.data)
 
-class SWAG():
+class swag_picker():
     def __init__(self, batch_size, model_name, checkpoint_file, seed, train_filename, train_data_path, 
-                cov_mat=True, num_workers=4, K=20):
+                cov_mat=True, num_workers=4, K=20, device="cuda:0"):
         torch.backends.cudnn.benchmark = True
         torch.manual_seed(seed)
         torch.cuda.manual_seed(seed)
@@ -75,7 +68,9 @@ class SWAG():
             *model_cfg.args,
             **model_cfg.kwargs)
         
-        self.model.cuda()
+        #self.model.cuda()
+        self.device = device
+        self.model.to(self.device)
 
         print("Loading model %s" % checkpoint_file)
         checkpoint = torch.load(checkpoint_file)
@@ -97,7 +92,8 @@ class SWAG():
             self.model.eval()
             k = 0
             for input in dset_loader:
-                input = input.cuda(non_blocking=True)
+                #input = input.cuda(non_blocking=True)
+                input = input.to(self.device, non_blocking=True)
                 torch.manual_seed(i)
                 output = self.model(input)
                 with torch.no_grad():
@@ -107,10 +103,11 @@ class SWAG():
         return predictions
 
 class detector():
-    def __init__(self, phase, model_to_test, num_channels=3, min_presigmoid_value=None):
+    def __init__(self, phase, model_to_test, num_channels=3, min_presigmoid_value=None,
+                 device="cuda:0"):
         self.phase = phase
         warnings.simplefilter("ignore")
-        self.device = torch.device("cuda:0")
+        self.device = torch.device(device)
         self.min_presigmoid_value = min_presigmoid_value
 
         print(f"Initializing {num_channels} comp {phase} unet...")
@@ -149,79 +146,6 @@ class detector():
     def get_n_params(self):
         return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
 
-    # @staticmethod
-    # def sliding_window_phase_arrival_estimator(Y, window_size, thresh=0.1, min_boxcar_width=20):
-    #     """
-
-    #     Find potential phase arrivals in the probability time-series output from the UNet given a minimum threshold value.
-    #     Chooses window to look for detection based on when the proba goes above thresh and then below again
-    #     :param Y: Probability time series
-    #     :param window_size: step size for sliding window
-    #     :param thresh: minimum probability threshold to record picks
-    #     :param min_boxcar_width: approx. minimum width of a boxcar detection allowed
-    #     :return: list of the samples in Y with an expected phase arrival (given thresh)
-    #     """
-    #     i1 = 0
-    #     picks = []
-    #     proba_values = []
-    #     widths = []
-    #     while i1 < Y.shape[0]:
-    #         i2 = i1 + np.min([(Y.shape[0] - i1), window_size])
-    #         if np.any(Y[i1:i2] >= thresh):
-    #             # find first ind in window above thresh (start looking for max proba)
-    #             start_win = i1 + np.where(Y[i1:i2] >= thresh)[0][0]
-    #             # find end ind where proba has gone below thresh - if start and end inds are too close together, find a new end index
-    #             search_win_size = 100
-    #             possible_win_lengths = np.where(Y[start_win:start_win+search_win_size] < thresh)[0]
-                
-    #             while len(possible_win_lengths) < 1:
-    #                 search_win_size += 10
-    #                 possible_win_lengths = np.where(Y[start_win:start_win+search_win_size] < thresh)[0]
-
-    #             end_win = start_win + possible_win_lengths[0]
-    #             win_end_ind = 1
-    #             if Y.shape[0] - start_win < min_boxcar_width:
-    #                 break
-    #             while end_win - start_win < min_boxcar_width and end_win < Y.shape[0]:
-    #                 # changed this to while loop - hopefully it doesn't break everything
-    #                 while win_end_ind >= len(possible_win_lengths):
-    #                     search_win_size += 10
-    #                     # TODO: add in case where increasing by 10 does not increase possible_win_lengths
-    #                     possible_win_lengths = np.where(Y[start_win:start_win+search_win_size] < thresh)[0]
-    #                     if start_win + search_win_size > Y.shape[0]:
-    #                         break
-    #                 end_win = start_win + possible_win_lengths[win_end_ind]
-    #                 win_end_ind += 1
-
-    #             if end_win - start_win < min_boxcar_width:
-    #                 print("Y", Y[start_win:start_win+150])
-    #                 print("P", possible_win_lengths)
-    #                 print(thresh)
-    #                 print(end_win-start_win)
-
-    #             assert end_win - start_win >= min_boxcar_width, "too narrow boxcar"
-    #             proba = np.max(Y[start_win:end_win])
-    #             pick = start_win + np.where(Y[start_win:end_win] == proba)[0][0]
-    #             widths.append(end_win-start_win)
-    # #            if len(picks) > 0 and pick - picks[-1] < 21:
-    # #                print("picks close together", pick, picks[-1])
-    # #                print("probas", proba, proba_values[-1])
-    # #                if proba > proba_values[-1]:
-    # #                    picks[-1] = pick
-    # #                    proba_values[-1] = proba
-    # #                    print(pick)
-    # #                else:
-    # #                    print(picks[-1])
-    # #            else:
-    #             picks.append(pick)
-    #             proba_values.append(proba)
-                
-    #             i1 += (end_win - i1)
-    #         else:
-    #             i1 += window_size
-
-
-    #     return np.array(proba_values), np.array(picks), np.array(widths)
 
     @staticmethod
     def sliding_window_phase_arrival_estimator_updated(Y, window_size=100, thresh=0.1, end_thresh_diff=0.05):
@@ -320,45 +244,65 @@ class fm_picker():
         return self.polarity
 
 class apply_models():
-    def __init__(self, models, center_window, sliding_interval, unet_window_length, pcnn_window_length, batch_size=64, 
-                scnn_window_length=600, min_presigmoid_value=None, swag_info=None):
-        self.center_window = center_window
-        self.sliding_interval = sliding_interval
-        self.unet_window_length = unet_window_length
-        self.pcnn_window_length = pcnn_window_length
-        self.batch_size=batch_size
+    def __init__(self, CFG):
+        # from finetune_config import CFG
+
+        config = Config.from_json(CFG)
+
+        self.batch_size = config.model_params.batch_size
+        self.center_window = config.model_params.center_window
+        self.sliding_interval = config.model_params.sliding_interval
+        self.unet_window_length = config.model_params.unet_window_length
+        self.pcnn_window_length = config.model_params.pcnn_window_length
+        self.batch_size=config.model_params.batch_size
+
+        self.data_dir = config.paths.data_dir
+        model_dir = config.paths.model_dir
+        self.output_dir = config.paths.output_dir
+
+        self.catalog_file = config.output_file_names.catalog_file
+        self.output_probability_file = config.output_file_names.output_probability_file
+
+        self.device = config.options.device
+        self.single_stat_string = config.options.single_stat_string
+        self.debug_s_detector = config.options.debug_s_detector
+        self.debug_inds_file = config.options.debug_inds_file
 
         # Initialize models 
-        self.p_detector3c = detector("P", models["pDetector3c"], num_channels=3, min_presigmoid_value=min_presigmoid_value)
-        self.s_detector = detector("S", models["sDetector"], num_channels=3, min_presigmoid_value=min_presigmoid_value)
-        self.p_detector1c = detector("P", models["pDetector1c"], num_channels=1, min_presigmoid_value=min_presigmoid_value)
+        models = config.models
+        min_presigmoid_value = config.model_params.min_presigmoid_value
+        self.p_detector3c = detector("P", f'{model_dir}/{models["pDetector3c"]}', num_channels=3, min_presigmoid_value=min_presigmoid_value, device=self.device)
+        self.s_detector = detector("S", f'{model_dir}/{models["sDetector"]}', num_channels=3, min_presigmoid_value=min_presigmoid_value, device=self.device)
+        self.p_detector1c = detector("P", f'{model_dir}/{models["pDetector1c"]}', num_channels=1, min_presigmoid_value=min_presigmoid_value, device=self.device)
 
-        if swag_info is not None:
-            self.ppicker = phase_picker("P", models["pPicker"])
+        self.swag_info = config.swag_info
+
+        if self.swag_info is not None:
+            self.ppicker = phase_picker("P", f'{model_dir}/{models["pPicker"]}', device=self.device)
             try:
-                self.spicker = phase_picker("S", models["sPicker"], max_dt_nn=0.85)
-                self.scnn_window_length = scnn_window_length
+                self.spicker = phase_picker("S", f'{model_dir}/{models["sPicker"]}', max_dt_nn=0.85, device=self.device)
+                self.scnn_window_length = config.model_params.scnn_window_length
             except:
                 self.spicker = None
                 self.scnn_window_length = None
         else:
             # self, batch_size, model_name, checkpoint_file, seed, train_filename, train_data_path, 
             # cov_mat=True, num_workers=4, K=20
-            seeds = swag_info["seeds"]
-            k = swag_info["K"]
-            num_workers = swag_info["num_workers"]
-            cov_mat = swag_info["cov_mat"]
-            swag_ptrain_filename = swag_info["p_train_file"]
-            swag_pdata_path = swag_info["p_data_path"]
-            swag_strain_filename = swag_info["s_train_file"]
-            swag_sdata_path = swag_info["s_data_path"]           
-            self.swag_ppickers = [SWAG(batch_size, "PPicker", models["swagPPicker"][0], seeds[0], swag_ptrain_filename, swag_pdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k),
-                                SWAG(batch_size, "PPicker", models["swagPPicker"][1], seeds[1], swag_ptrain_filename, swag_pdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k),
-                                SWAG(batch_size, "PPicker", models["swagPPicker"][2], seeds[2], swag_ptrain_filename, swag_pdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k)]
+            seeds = self.swag_info["seeds"]
+            k = self.swag_info["K"]
+            num_workers = self.swag_info["num_workers"]
+            cov_mat = self.swag_info["cov_mat"]
+            swag_ptrain_filename = self.swag_info["p_train_file"]
+            swag_pdata_path = self.swag_info["p_data_path"]
+            swag_strain_filename = self.swag_info["s_train_file"]
+            swag_sdata_path = self.swag_info["s_data_path"]           
+            self.swag_ppickers = [swag_picker(self.batch_size, "PPicker", f'{model_dir}/{models["swagPPicker"][0]}', seeds[0], swag_ptrain_filename, swag_pdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k, device=self.device),
+                                swag_picker(self.batch_size, "PPicker", f'{model_dir}/{models["swagPPicker"][1]}', seeds[1], swag_ptrain_filename, swag_pdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k, device=self.device),
+                                swag_picker(self.batch_size, "PPicker", f'{model_dir}/{models["swagPPicker"][2]}', seeds[2], swag_ptrain_filename, swag_pdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k, device=self.device)]
 
-            self.swag_ppickers = [SWAG(batch_size, "SPicker", models["swagSPicker"][0], seeds[0], swag_strain_filename, swag_sdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k),
-                                SWAG(batch_size, "SPicker", models["swagSPicker"][1], seeds[1], swag_strain_filename, swag_sdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k),
-                                SWAG(batch_size, "SPicker", models["swagSPicker"][2], seeds[2], swag_strain_filename, swag_sdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k)]
+            self.swag_ppickers = [swag_picker(self.batch_size, "SPicker", f'{model_dir}/{models["swagSPicker"][0]}', seeds[0], swag_strain_filename, swag_sdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k, device=self.device),
+                                swag_picker(self.batch_size, "SPicker", f'{model_dir}/{models["swagSPicker"][1]}', seeds[1], swag_strain_filename, swag_sdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k, device=self.device),
+                                swag_picker(self.batch_size, "SPicker", f'{model_dir}/{models["swagSPicker"][2]}', seeds[2], swag_strain_filename, swag_sdata_path, cov_mat=cov_mat, num_workers=num_workers, K=k, device=self.device)]
         
         self.fmpicker = fm_picker(models["fmPicker"])
         self.results = []
@@ -368,21 +312,7 @@ class apply_models():
         st = obspy.read(file_name)
         print(f"Read in {st}")
 
-        # One time 4 traces were read in but I have no idea why - some kind of gap thing
         if len(st) > num_channels:
-            # date = file_name.split("__")[1].split("T")[0]
-            # keep_tr = []
-            # for tr in st:
-            #     if date == tr.stats.starttime.strftime("%Y%m%d"):
-            #         keep_tr.append(tr)
-            # if len(keep_tr) < num_channels:
-            #     print("Not enough correct traces, skipping...")
-            #     return None, 0
-            # elif len(keep_tr) == len(st):
-            #     print(f"Filling {len(st.get_gaps())} gaps in data with interpolate values")
-            #     st.merge(fill_value="interpolate")
-            # else:
-            #     st = obspy.Stream(keep_tr)
             print(f"Filling {len(st.get_gaps())} gaps in data with interpolate values")
             st.merge(fill_value="interpolate")
             print("Corrected Stream", st)
@@ -414,35 +344,35 @@ class apply_models():
 
         if st[0].stats.sampling_rate != 100:
             print(f"Resampled from {st[0].stats.sampling_rate} to 100 Hz...")
-            st_preproc.resample(100)
+            st.resample(100)
 
-        npts = st_preproc[0].stats.npts
+        npts = st[0].stats.npts
 
         # Check number of points and sampling rates 
         if num_channels == 3:
-            assert st_preproc[0].stats.npts == st_preproc[1].stats.npts == st_preproc[2].stats.npts
-            assert st_preproc[0].stats.delta == st_preproc[1].stats.delta == st_preproc[2].stats.delta
-        assert st_preproc[0].stats.delta == 0.01
+            assert st[0].stats.npts == st[1].stats.npts == st[2].stats.npts
+            assert st[0].stats.delta == st[1].stats.delta == st[2].stats.delta
+        assert st[0].stats.delta == 0.01
 
         # start time of the hour long trace in UNIX time
-        starttime_epoch = st_preproc[0].stats.starttime - UTCDateTime("19700101")
-        for tr in st_preproc:
+        starttime_epoch = st[0].stats.starttime - UTCDateTime("19700101")
+        for tr in st:
             tr.stats.starttime_epoch = starttime_epoch
 
         # how much to extend the last window to be evenly divisible by the sliding window
-        padding_seconds = (self.sliding_interval - (npts-self.unet_window_length)%self.sliding_interval)*st_preproc[0].stats.delta
-        new_endtime = st_preproc[0].stats.endtime+padding_seconds
-        for tr in st_preproc:
-            tr.trim(st_preproc[0].stats.starttime, new_endtime, pad=True, fill_value=tr.data[-1])
+        padding_seconds = (self.sliding_interval - (npts-self.unet_window_length)%self.sliding_interval)*st[0].stats.delta
+        new_endtime = st[0].stats.endtime+padding_seconds
+        for tr in st:
+            tr.trim(st[0].stats.starttime, new_endtime, pad=True, fill_value=tr.data[-1])
         
         if num_channels == 3:
-            assert st_preproc[0].stats.npts == st_preproc[1].stats.npts == st_preproc[2].stats.npts
+            assert st[0].stats.npts == st[1].stats.npts == st[2].stats.npts
 
-        npts=st_preproc[0].stats.npts
+        npts=st[0].stats.npts
         # number of times to move the window 
         n_intervals = (npts-self.unet_window_length)//self.sliding_interval + 1
 
-        return st_preproc, n_intervals
+        return st, n_intervals
 
     def stream_to_tensor_3c(self, st_preproc):
         npts=st_preproc[0].stats.npts
@@ -494,36 +424,7 @@ class apply_models():
             for example_ind in np.arange(batch_start, batch_end):
                 ex_start = start_indicies[example_ind]
                 example = cont_data[ex_start:ex_start+self.unet_window_length].copy()
-                # ### Adding this processing in to this step ###
-                # obs_ex = obspy.Stream()
-                # for chan in range(example.shape[1]):
-                #     tr = obspy.Trace(example[:, chan])
-                #     tr.stats.sampling_rate = 100.0
-                #     obs_ex += tr
-                    
-                # obs_ex.detrend('linear')
-                # obs_ex.detrend('demean')
-                # obs_ex.taper(0.01, type="cosine")
-                # obs_ex.filter("bandpass", freqmin=1.0, freqmax=17.0, corners=2)
 
-                # example = np.zeros((self.unet_window_length, num_channels))
-                # for chan in range(num_channels):
-                #     example[:, chan] = obs_ex[chan].data
-                # processed_data[example_ind-1, :, :] = example
-                # ## END addition ###
-                
-                # ## When just looking at adding BP filter here, had only this line + other processing in self.preprocess_data ###
-                # ## example = self.obspy_bandpass(example, freqmin=1.0, freqmax=17.0, corners=2)
-                
-                # # normalize the data for the window 
-                # norm_vals = np.max(abs(example), axis=0)
-                # norm_vals_inv = np.zeros_like(norm_vals)
-                # for nv_ind in range(len(norm_vals)):
-                #     nv = norm_vals[nv_ind]
-                #     if abs(nv) > 1e-4:
-                #         norm_vals_inv[nv_ind] = 1/nv
-
-                # example = example*norm_vals_inv
                 example = self.process_waveform(example)
                 batch[example_ind-batch_start, :, :] = example
 
@@ -603,48 +504,6 @@ class apply_models():
             return p_posterior_probs, s_posterior_probs
 
         return p_posterior_probs, None
-
-    def obspy_bandpass(self, data, freqmin, freqmax, df, corners=4, zerophase=False):
-        """
-        Taken from Obspy Source CODE. Butterworth-Bandpass Filter.
-
-        Filter data from ``freqmin`` to ``freqmax`` using ``corners``
-        corners.
-        The filter uses :func:`scipy.signal.iirfilter` (for design)
-        and :func:`scipy.signal.sosfilt` (for applying the filter).
-
-        :type data: numpy.ndarray
-        :param data: Data to filter.
-        :param freqmin: Pass band low corner frequency.
-        :param freqmax: Pass band high corner frequency.
-        :param df: Sampling rate in Hz.
-        :param corners: Filter corners / order.
-        :param zerophase: If True, apply filter once forwards and once backwards.
-            This results in twice the filter order but zero phase shift in
-            the resulting filtered trace.
-        :return: Filtered data.
-        """
-        fe = 0.5 * df
-        low = freqmin / fe
-        high = freqmax / fe
-        # raise for some bad scenarios
-        if high - 1.0 > -1e-6:
-            msg = ("Selected high corner frequency ({}) of bandpass is at or "
-                "above Nyquist ({}). Applying a high-pass instead.").format(
-                freqmax, fe)
-            raise ValueError(msg)
-
-        if low > 1:
-            msg = "Selected low corner frequency is above Nyquist."
-            raise ValueError(msg)
-        z, p, k = iirfilter(corners, [low, high], btype='band',
-                            ftype='butter', output='zpk')
-        sos = zpk2sos(z, p, k)
-        if zerophase:
-            firstpass = sosfilt(sos, data)
-            return sosfilt(sos, firstpass[::-1])[::-1]
-        else:
-            return sosfilt(sos, data)
             
     def apply_detectors_edgecases(self, cont_data, n_intervals, start_indicies, num_channels=3):
         """
@@ -679,7 +538,7 @@ class apply_models():
         inner_p_posterior_probs, inner_s_posterior_probs = self.apply_detectors_nonedgecases(cont_data, n_intervals, batch_size, start_indicies, 
                                                                     num_channels=num_channels, debug_s=debug_s, debug_inds=debug_inds)
         
-        if debug_s_detector or debug_inds is not None:
+        if debug_s or debug_inds is not None:
             return inner_p_posterior_probs, inner_s_posterior_probs
 
         p_edge_case_probs, s_edge_case_probs = self.apply_detectors_edgecases(cont_data, n_intervals, start_indicies, num_channels=num_channels)
@@ -998,187 +857,134 @@ class apply_models():
         outfile = f"{outdir}/{station}.{date}.{phase}.predictions"
         np.savez(outfile, predictions=predictions)
 
+    def apply_to_data(self):
+        if self.debug_inds_file is not None and self.debug_s_detector:
+            raise ValueError("Cannot debug s detector and output indicies of interest, change one to False/None")
+
+        if self.debug_inds_file is not None:
+            debug_inds = np.loadtxt(self.debug_inds_file, dtype="int")
+        else:
+            debug_inds = None
+
+        # Get the unique starting dates of files
+        dates = set()
+        for file in glob.glob(f"{self.data_dir}/*mseed"):
+            date = file.split("__")
+            dates.add(date[1])
+        dates = np.sort(list(dates))
+    
+        dates = dates[-1:] #dates[5:]
+        print(dates)
+        # Iterate over the dates
+        for date in dates:
+            print(f"Starting on date from {date}...")
+            # Get the station names and a count from data_dir file names for the given date.
+            # If only intersted in one station, don't do all that counting
+            station_names = {}
+            stat_name_ind = 1
+            if self.data_dir[0] == ".":
+                stat_name_ind = 2
+            for file in glob.glob(f"{self.data_dir}/*__{date}__*mseed"):
+                stat_name = file.split(".")[stat_name_ind]
+                chan = file.split(".")[stat_name_ind+2].split("__")[0][:-1]
+                name = f"{stat_name}*{chan}"
+                if name in station_names.keys():
+                    station_names[name] += 1
+                else:
+                    station_names[name] = 1
+
+            print(f"Found {len(station_names.keys())} station/channel pairs")
+            station_name_list = station_names.keys()
+            if self.single_stat_string is not None:
+                station_name_list = [self.single_stat_string]
+
+            print(station_name_list)
+            for stat in station_name_list:
+                # Check the number of channels for the given station
+                if station_names[stat] == 1:
+                    num_channels = 1
+                elif station_names[stat] == 3:
+                    num_channels = 3
+                else:
+                    print(f"Wrong number of channels, skipping {stat_name}...")
+                    continue
+                #assert station_names[stat] == 3, f"Must have 3 channels, not {station_names[stat]}"
+
+                #### Go through all processing for 1, 3C station ####
+                station_file_name = f'{self.data_dir}/*{stat}*__{date}__*.mseed'
+                st_preproc, n_intervals = applier.load_continuous(station_file_name, num_channels=num_channels)
+                if st_preproc is None:
+                    print("Skipping data from this station for this day...")
+                    continue
+                
+                if num_channels == 3:
+                    data_tensor = applier.stream_to_tensor_3c(st_preproc)
+                    pdetector_results, sdetector_results = applier.get_detector_picks(data_tensor, n_intervals, num_channels=num_channels, 
+                    save_probs=self.output_probability_file, debug_s=self.debug_s_detector, debug_inds=debug_inds)
+                    if self.debug_s_detector:
+                        f = h5py.File(f'{self.catalog_file}.{date}.h5', "w")
+                        f.create_dataset("continuous_data", data=sdetector_results[0])
+                        f.create_dataset("posterior_probs", data=sdetector_results[1])
+                        f.create_dataset("presigmoid_output", data=sdetector_results[2])
+                        f.create_dataset("nan_inds", data=sdetector_results[3])
+                        f.create_dataset("five_one_inds", data=sdetector_results[4])
+                        f.create_dataset("surrounding_cont_data", data=sdetector_results[5])
+                        f.close()
+                        continue
+                    elif debug_inds is not None:
+                        f = h5py.File(f'{self.catalog_file}.{date}.h5', "w")
+                        f.create_dataset("continuous_data", data=sdetector_results[0])
+                        f.create_dataset("posterior_probs", data=sdetector_results[1])
+                        f.create_dataset("presigmoid_output", data=sdetector_results[2])
+                        f.create_dataset("surrounding_cont_data", data=sdetector_results[3])
+                        f.create_dataset("indicies", data=sdetector_results[4])
+                        f.close()
+                        continue
+                else:
+                    data_tensor = applier.stream_to_tensor_1c(st_preproc)
+                    pdetector_results, _ = applier.get_detector_picks(data_tensor, n_intervals, num_channels=num_channels, save_probs=self.output_probability_file)
+                
+                if self.swag_info is None:
+                    ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"])
+                    fm_predictions, fm_probs = applier.get_fm_information(data_tensor, pdetector_results["pick_inds"], ppick_corrections)
+                    pdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
+                                                                                                    pdetector_results["pick_inds"], 
+                                                                                                    ppick_corrections)
+                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_corrections, fm_predictions, fm_probs, num_channels=num_channels)
+                else:
+                    N = self.swag_info["N"]
+                    ensemble_ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"], N=N)
+                    ppick_stats = applier.calibrate_swag_predictions(ensemble_ppick_corrections, self.swag_info["P_0.05_transform"], self.swag_info["P_0.95_transform"])
+                    fm_predictions, fm_probs = applier.get_fm_information(data_tensor, pdetector_results["pick_inds"], ppick_stats["mean"])
+                    pdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
+                                                                                                    pdetector_results["pick_inds"], 
+                                                                                                    ppick_stats["mean"])
+                
+                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_stats["mean"], fm_predictions, fm_probs, num_channels=num_channels,
+                                            swag_info=ppick_stats)
+                    applier.save_swag_predictions(ensemble_ppick_corrections, self.output_dir, stat, date, "P")
+
+                if num_channels == 3:
+                    if self.swag_info is None:
+                        spick_corrections = applier.get_s_pick_corrections(data_tensor, sdetector_results["pick_inds"])
+                        sdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
+                                                                                                    sdetector_results["pick_inds"], 
+                                                                                                    spick_corrections)
+                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_corrections)
+                    else:
+                        ensemble_spick_corrections = applier.get_s_pick_corrections(data_tensor, sdetector_results["pick_inds"], N=N)
+                        spick_stats = applier.calibrate_swag_predictions(ensemble_spick_corrections, self.swag_info["S_0.05_transform"], self.swag_info["S_0.95_transform"])
+                        sdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
+                                                                                                    sdetector_results["pick_inds"], 
+                                                                                                    spick_stats["mean"])
+
+                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_stats["mean"], num_channels=num_channels,swag_info=spick_stats)
+                        applier.save_swag_predictions(ensemble_spick_corrections, self.output_dir, stat, date, "S")
+
+                applier.save_results_to_csv(f'{self.catalog_file}.csv')
+
 if __name__ == "__main__":
     #### Set Parameters and Initialize the Classes ####
 
-    print("Working directory:", os.getcwd())
-    model_dir = "/home/armstrong/Research/newer/sg_selected_models" #"./selected_models"
-    data_dir = "/home/armstrong/Research/apply_models/data" #"./data"
-    # models = {
-    #     "pDetector3c": f"{model_dir}/pDetector_model027.pt", 
-    #     "sDetector": f"{model_dir}/sDetector_model003.pt", 
-    #     "pPicker": f"{model_dir}/pPicker_model006.pt", 
-    #     "fmPicker": f"{model_dir}/fmPicker_model002.pt",
-    #     "sPicker": f"{model_dir}/sPicker_model012.pt",
-    #     "pDetector1c":f"{model_dir}/oneCompPDetector_model029.pt"
-    #     }
-
-    models = {
-        "pDetector3c": f"{model_dir}/pDetector_model027.pt", 
-        "sDetector": f"{model_dir}/sDetector_model003.pt", 
-        "swagPPicker": [f"{model_dir}/pPicker_model006.pt", f"{model_dir}/pPicker_model006.pt", f"{model_dir}/pPicker_model006.pt"], 
-        "fmPicker": f"{model_dir}/fmPicker_model002.pt",
-        "swagSPicker": [f"{model_dir}/sPicker_model012.pt", f"{model_dir}/sPicker_model012.pt", f"{model_dir}/sPicker_model012.pt"],
-        "pDetector1c":f"{model_dir}/oneCompPDetector_model029.pt"
-        }
-
-    # If debug_s_detector is True, then this is the output h5 file for the problem examples. 
-    # Otherwise, this is a csv file of the pick information.
-    outdir = f'/home/armstrong/Research/newer/applied_results'
-    outfilename = f"{outdir}/YGV.0403" #picks_0330_0403' # all_picks_0325_0403_CNNproc' # no file type suffix
-    single_stat_string= "YGC*EH"#None #"YNR*HH" #"B944*EH" # format station*station_type
-    debug_s_detector=False
-    debug_inds_file = None #"s_detector_failures/seperateprocessing.PB.B944.20140330T000000Z.badinds.txt"
-    
-    swag_info = {
-        "seeds": [1, 2, 3],
-        "K": 20,
-        "num_workers": 4,
-        "cov_mat":True,
-        "N": 30,
-        "p_train_file":,
-        "p_data_path":,
-        "s_train_file":,
-        "s_data_path":
-        "pred_out_dir": f"{outdir}/swag_predictions", 
-        "P_0.05_transform":,
-        "P_0.95_transform":,
-        "S_0.05_transform",
-        "S_0.95_transform"
-    }
-
-    if debug_inds_file is not None and debug_s_detector:
-        raise ValueError("Cannot debug s detector and output indicies of interest, change one to False/None")
-
-    if debug_inds_file is not None:
-        debug_inds = np.loadtxt(debug_inds_file, dtype="int")
-    else:
-        debug_inds = None
-
-    batch_size = 128
-    center_window = 250
-    sliding_interval = 500
-    unet_window_length = 1008
-    pcnn_window_length = 400
-    scnn_window_length = 600
-    min_presigmoid_value = -70
-    applier = apply_models(models, center_window, sliding_interval, unet_window_length, pcnn_window_length, 
-                            batch_size=batch_size, min_presigmoid_value=min_presigmoid_value, swag_info=swag_info)
-    save_probs_file = None #f"{outfilename}.proba.h5"
-
-    # Get the unique starting dates of files
-    dates = set()
-    for file in glob.glob(f"{data_dir}/*mseed"):
-        date = file.split("__")
-        dates.add(date[1])
-    dates = np.sort(list(dates))
-   
-    dates = dates[-1:] #dates[5:]
-    print(dates)
-    # Iterate over the dates
-    for date in dates:
-        print(f"Starting on date from {date}...")
-        # Get the station names and a count from data_dir file names for the given date.
-        # If only intersted in one station, don't do all that counting
-        station_names = {}
-        stat_name_ind = 1
-        if data_dir[0] == ".":
-            stat_name_ind = 2
-        for file in glob.glob(f"{data_dir}/*__{date}__*mseed"):
-            stat_name = file.split(".")[stat_name_ind]
-            chan = file.split(".")[stat_name_ind+2].split("__")[0][:-1]
-            name = f"{stat_name}*{chan}"
-            if name in station_names.keys():
-                station_names[name] += 1
-            else:
-                station_names[name] = 1
-
-        print(f"Found {len(station_names.keys())} station/channel pairs")
-        station_name_list = station_names.keys()
-        if single_stat_string is not None:
-            station_name_list = [single_stat_string]
-
-        print(station_name_list)
-        for stat in station_name_list:
-            # Check the number of channels for the given station
-            if station_names[stat] == 1:
-                num_channels = 1
-            elif station_names[stat] == 3:
-                num_channels = 3
-            else:
-                print(f"Wrong number of channels, skipping {stat_name}...")
-                continue
-            #assert station_names[stat] == 3, f"Must have 3 channels, not {station_names[stat]}"
-
-            #### Go through all processing for 1, 3C station ####
-            station_file_name = f'{data_dir}/*{stat}*__{date}__*.mseed'
-            st_preproc, n_intervals = applier.load_continuous(station_file_name, num_channels=num_channels)
-            if st_preproc is None:
-                print("Skipping data from this station for this day...")
-                continue
-            
-            if num_channels == 3:
-                data_tensor = applier.stream_to_tensor_3c(st_preproc)
-                pdetector_results, sdetector_results = applier.get_detector_picks(data_tensor, n_intervals, num_channels=num_channels, 
-                save_probs=save_probs_file, debug_s=debug_s_detector, debug_inds=debug_inds)
-                if debug_s_detector:
-                    f = h5py.File(f'{outfilename}.{date}.h5', "w")
-                    f.create_dataset("continuous_data", data=sdetector_results[0])
-                    f.create_dataset("posterior_probs", data=sdetector_results[1])
-                    f.create_dataset("presigmoid_output", data=sdetector_results[2])
-                    f.create_dataset("nan_inds", data=sdetector_results[3])
-                    f.create_dataset("five_one_inds", data=sdetector_results[4])
-                    f.create_dataset("surrounding_cont_data", data=sdetector_results[5])
-                    f.close()
-                    continue
-                elif debug_inds is not None:
-                    f = h5py.File(f'{outfilename}.{date}.h5', "w")
-                    f.create_dataset("continuous_data", data=sdetector_results[0])
-                    f.create_dataset("posterior_probs", data=sdetector_results[1])
-                    f.create_dataset("presigmoid_output", data=sdetector_results[2])
-                    f.create_dataset("surrounding_cont_data", data=sdetector_results[3])
-                    f.create_dataset("indicies", data=sdetector_results[4])
-                    f.close()
-                    continue
-            else:
-                data_tensor = applier.stream_to_tensor_1c(st_preproc)
-                pdetector_results, _ = applier.get_detector_picks(data_tensor, n_intervals, num_channels=num_channels, save_probs=save_probs_file)
-            
-            if swag_info is None:
-                ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"])
-                fm_predictions, fm_probs = applier.get_fm_information(data_tensor, pdetector_results["pick_inds"], ppick_corrections)
-                pdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
-                                                                                                pdetector_results["pick_inds"], 
-                                                                                                ppick_corrections)
-                applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_corrections, fm_predictions, fm_probs, num_channels=num_channels)
-            else:
-                N = swag_info["N"]
-                ensemble_ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"], N=N)
-                ppick_stats = applier.calibrate_swag_predictions(ensemble_ppick_corrections, swag_info["P_0.05_transform"], swag_info["P_0.95_transform"])
-                fm_predictions, fm_probs = applier.get_fm_information(data_tensor, pdetector_results["pick_inds"], ppick_stats["mean"])
-                pdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
-                                                                                                pdetector_results["pick_inds"], 
-                                                                                                ppick_stats["mean"])
-            
-                applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_stats["mean"], fm_predictions, fm_probs, num_channels=num_channels,
-                                         swag_info=ppick_stats)
-                applier.save_swag_predictions(ensemble_ppick_corrections, outdir, stat, date, "P")
-
-            if num_channels == 3:
-                if swag_info is None:
-                    spick_corrections = applier.get_s_pick_corrections(data_tensor, sdetector_results["pick_inds"])
-                    sdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
-                                                                                                sdetector_results["pick_inds"], 
-                                                                                                spick_corrections)
-                    applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_corrections)
-                else:
-                    ensemble_spick_corrections = applier.get_s_pick_corrections(data_tensor, sdetector_results["pick_inds"], N=N)
-                    spick_stats = applier.calibrate_swag_predictions(ensemble_spick_corrections, swag_info["S_0.05_transform"], swag_info["S_0.95_transform"])
-                    sdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
-                                                                                                sdetector_results["pick_inds"], 
-                                                                                                spick_stats["mean"])
-
-                    applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_stats["mean"], num_channels=num_channels,swag_info=spick_stats)
-                    applier.save_swag_predictions(ensemble_spick_corrections, outdir, stat, date, "S")
-
-            applier.save_results_to_csv(f'{outfilename}.csv')
+    applier = apply_models(config_file)
+    applier.apply_to_data()
