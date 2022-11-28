@@ -11,17 +11,17 @@ CFG = {
         "min_presigmoid_value":-70,
     },
     "paths":{
-        "model_dir":"/home/armstrong/Research/newer/sg_selected_models",
-        "data_dir":"/home/armstrong/Research/apply_models/data",
-        "output_dir": "/home/armstrong/Research/newer/applied_results"
+        "model_dir":"/home/armstrong/Research/constant_boxcar_widths_NGB/selected_models",
+        "data_dir":"/home/armstrong/Research/constant_boxcar_widths_NGB/data",
+        "output_dir": "/home/armstrong/Research/constant_boxcar_widths_NGB/applied_results_20141127"
     },
     "models":{
-        "pDetector3c": "pDetector_model027.pt", 
-        "sDetector": "sDetector_model003.pt", 
-        "swagPPicker": ["pPicker_model006.pt", "pPicker_model006.pt", "pPicker_model006.pt"], 
+        "pDetector3c": "pDetectorMew_model_026.pt", 
+        "sDetector": "sDetector_model032.pt", 
+        "swagPPicker": ["pPicker_seed1_swag61.pt", "pPicker_seed2_swag61.pt", "pPicker_seed3_swag61.pt"], 
         "fmPicker": "fmPicker_model002.pt",
-        "swagSPicker": ["sPicker_model012.pt", "sPicker_model012.pt", "sPicker_model012.pt"],
-        "pDetector1c":"oneCompPDetector_model029.pt"
+        "swagSPicker": ["sPicker_swag56_seed1.pt", "sPicker_swag56_seed2.pt", "sPicker_swag56_seed3.pt"],
+        "pDetector1c":"oneCompPDetectorMEW_model_022.pt"
         },
     "output_file_names":{
         "catalog_file":"YGV.0403",
@@ -33,18 +33,21 @@ CFG = {
         "num_workers": 4,
         "cov_mat":True,
         "N": 30,
-        "p_train_file":,
-        "p_data_path":,
-        "s_train_file":,
-        "s_data_path":
-        "pred_out_dir": f"{outdir}/swag_predictions", 
-        "P_0.05_transform":,
-        "P_0.95_transform":,
-        "S_0.05_transform",
-        "S_0.95_transform"
+        "p_train_file":"uuss_train_4s_1dup.h5",
+        "p_data_path":"/home/armstrong/Research/git_repos/patprob/no_duplicates/uuss_data/p_resampled",
+        "s_train_file":"uuss_train_6s_1dup.h5",
+        "s_data_path":"/home/armstrong/Research/git_repos/patprob/no_duplicates/uuss_data/s_resampled/",
+        "pred_out_dir": f"swag_predictions", 
+        "P_calibration_file":"p_calibration_model.joblib",
+        "S_calibration_file":"s_calibration_model.joblib",
+        "calibration_path":None,
+        "CI_lower_bound":0.05,
+        "CI_upper_bound":0.95,
+        "N_P":25,
+        "N_S":50
     },
     "options":{
-        "device":"cuda:0",
+        "device": "cpu", #cuda:0",
         "single_stat_string": None,
         "debug_s_detector": False,
         "debug_inds_file":None,
