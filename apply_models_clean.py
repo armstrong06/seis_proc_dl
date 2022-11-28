@@ -257,11 +257,16 @@ class apply_models():
         self.sliding_interval = config.model_params.sliding_interval
         self.unet_window_length = config.model_params.unet_window_length
         self.pcnn_window_length = config.model_params.pcnn_window_length
+        self.scnn_window_length = config.model_params.scnn_window_length
         self.batch_size=config.model_params.batch_size
 
         self.data_dir = config.paths.data_dir
         model_dir = config.paths.model_dir
         self.output_dir = config.paths.output_dir
+
+        if not os.path.exists(self.output_dir):
+            print("Making director", self.output_dir)
+            os.makedirs(self.output_dir)
 
         self.catalog_file = config.output_file_names.catalog_file
         self.output_probability_file = config.output_file_names.output_probability_file
@@ -270,6 +275,8 @@ class apply_models():
         self.single_stat_string = config.options.single_stat_string
         self.debug_s_detector = config.options.debug_s_detector
         self.debug_inds_file = config.options.debug_inds_file
+        self.p_detection_thresh = config.options.p_detection_thresh
+        self.s_detection_thresh = config.options.s_detection_thresh
 
         # Initialize models 
         models = config.models
@@ -281,12 +288,7 @@ class apply_models():
         if config.swag_info is None:
             self.use_swag = False
             self.ppicker = phase_picker("P", f'{model_dir}/{models.pPicker}', device=self.device)
-            try:
-                self.spicker = phase_picker("S", f'{model_dir}/{models.sPicker}', max_dt_nn=0.85, device=self.device)
-                self.scnn_window_length = config.model_params.scnn_window_length
-            except:
-                self.spicker = None
-                self.scnn_window_length = None
+            self.spicker = phase_picker("S", f'{model_dir}/{models.sPicker}', max_dt_nn=0.85, device=self.device)
         else:
             # self, batch_size, model_name, checkpoint_file, seed, train_filename, train_data_path, 
             # cov_mat=True, num_workers=4, K=20
@@ -299,6 +301,7 @@ class apply_models():
             swag_pdata_path = config.swag_info.p_data_path
             swag_strain_filename = config.swag_info.s_train_file
             swag_sdata_path = config.swag_info.s_data_path      
+            self.picker_summary_method = config.swag_info.picker_summary_method
 
             self.swag_p_loaders = swag_seismic_data.loaders(
                             swag_ptrain_filename,
@@ -568,7 +571,7 @@ class apply_models():
         p_edge_case_probs = self.p_detector1c.apply_model_to_batch(edge_cases, center_window=None)
         return p_edge_case_probs, None
 
-    def get_detector_picks(self, cont_data, n_intervals, batch_size=None, p_thresh=0.75, s_thresh=0.75, num_channels=3, save_probs=None, debug_s=False, debug_inds=None):
+    def get_detector_picks(self, cont_data, n_intervals, batch_size=None, num_channels=3, save_probs=None, debug_s=False, debug_inds=None):
         if batch_size is None:
             batch_size = self.batch_size
 
@@ -587,15 +590,15 @@ class apply_models():
         
         all_p_posterior_probs = self.concat_probs(p_edge_case_probs, inner_p_posterior_probs, npts)
         # pick_widths are forced to be atleast 20, so probably not a good indicator of quality, unless they are large (not in updated)
-        p_pick_probs, p_pick_inds, p_pick_widths = self.p_detector3c.sliding_window_phase_arrival_estimator_updated(all_p_posterior_probs, 100, thresh=p_thresh)
+        p_pick_probs, p_pick_inds, p_pick_widths = self.p_detector3c.sliding_window_phase_arrival_estimator_updated(all_p_posterior_probs, 100, thresh=self.p_detection_thresh)
         ppick_dict = self.detector_results_to_dict(p_pick_probs, p_pick_inds, p_pick_widths)
-        print(f'Found {len(p_pick_inds)} P arrivals above {p_thresh} threshold')
+        print(f'Found {len(p_pick_inds)} P arrivals above {self.p_detection_thresh} threshold')
 
         if num_channels == 3:
             all_s_posterior_probs = self.concat_probs(s_edge_case_probs, inner_s_posterior_probs, npts)
-            s_pick_probs, s_pick_inds, s_pick_widths = self.s_detector.sliding_window_phase_arrival_estimator_updated(all_s_posterior_probs, 100, thresh=s_thresh)
+            s_pick_probs, s_pick_inds, s_pick_widths = self.s_detector.sliding_window_phase_arrival_estimator_updated(all_s_posterior_probs, 100, thresh=self.s_detection_thresh)
             spick_dict = self.detector_results_to_dict(s_pick_probs, s_pick_inds, s_pick_widths)
-            print(f'Found {len(s_pick_inds)} S arrivals above {s_thresh} threshold')
+            print(f'Found {len(s_pick_inds)} S arrivals above {self.s_detection_thresh} threshold')
             if save_probs is not None:
                 file = h5py.File(save_probs, "w")
                 file.create_dataset("p_proba", data=all_p_posterior_probs)
@@ -847,7 +850,7 @@ class apply_models():
         pick_probs = pick_dict["pick_probs"]
         pick_widths = pick_dict["pick_widths"]
         if num_channels == 3:
-            channel = f'{tr_stats["channel"][:-1]}?'
+            channel = f'{tr_stats["channel"][:-1]}'
         else:
             channel = tr_stats["channel"]
 
@@ -867,9 +870,9 @@ class apply_models():
                 pick_summary["applied_pick_correction"] = pick_corrections.item(pick_ind)
 
             if swag_info is not None:
-                pick_summary["pick_lb"] = swag_info["lb"]
-                pick_summary["pick_ub"] = swag_info["ub"]
-                pick_summary["pick_std"] = swag_info["std"]
+                pick_summary["pick_lb"] = swag_info["lb"].item(pick_ind)
+                pick_summary["pick_ub"] = swag_info["ub"].item(pick_ind)
+                pick_summary["pick_std"] = swag_info["std"].item(pick_ind)
 
             if fm_predictions is not None:
                 # polarity=[1,-1,0]
@@ -882,32 +885,34 @@ class apply_models():
             
             self.results.append(pick_summary)
         
-    def save_results_to_csv(self, outname):
+    def save_results_to_csv(self):
+        outname = os.path.join(self.output_dir, f"{self.catalog_file}.csv")
         print(f"Saving results to {outname}")
         results_df = pd.DataFrame(self.results)
         results_df = results_df.sort_values("arrival_time")
         results_df.to_csv(outname, index=False, float_format="%.7f")
 
-    def calibrate_swag_predictions(predictions, lb_transform, ub_transform):
-        pred_mean = np.mean(predictions, axis=1)
+    def calibrate_swag_predictions(self, predictions, lb_transform, ub_transform):
+        if self.picker_summary_method == "mean":
+            y_pred = np.mean(predictions, axis=1)
+        elif self.picker_summary_method == "median":
+            y_pred = np.median(predictions, axis=1)
         pred_std = np.std(predictions, axis=1)
-        df_data = {"y_pred":pred_mean, "std":pred_std}
+        df_data = {"y_pred":y_pred, "std":pred_std}
         df = pd.DataFrame(data=df_data)
-        df["cdf"] = df.apply(lambda x: norm.cdf(x["y_act"], x["y_pred"], x["std"]), axis=1)
         y_lb = df.apply(lambda x: norm.ppf(lb_transform, x["y_pred"], x["std"]), axis=1).values[0]
         y_ub = df.apply(lambda x: norm.ppf(ub_transform, x["y_pred"], x["std"]), axis=1).values[0]
 
-        summary = {"mean": pred_mean, "std": pred_std, "lb": y_lb, "ub": y_ub}
+        summary = {"y_pred":y_pred, "std": pred_std, "lb": y_lb, "ub": y_ub}
 
         return summary
 
-    def save_swag_predictions(predictions, outdir, station, date, phase):
-        
-        if not os.path.exists(outdir):
-            print("Making director", outdir)
-            os.makedirs(outdir)
-
-        outfile = f"{outdir}/{station}.{date}.{phase}.predictions"
+    def save_swag_predictions(self, predictions, station, date, phase):
+        pred_outdir = os.path.join(self.output_dir, "swag_predictions")
+        if not os.path.exists(pred_outdir):
+            print("Making director", pred_outdir)
+            os.makedirs(pred_outdir)
+        outfile = f"{pred_outdir}/{station.split('*')[0]}.{station.split('*')[1]}.{date}.{phase}.predictions"
         np.savez(outfile, predictions=predictions)
 
     def apply_to_data(self):
@@ -1007,14 +1012,14 @@ class apply_models():
                 else:
                     ensemble_ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"], N=self.N_P)
                     ppick_stats = applier.calibrate_swag_predictions(ensemble_ppick_corrections, self.swag_p_lb, self.swag_p_ub)
-                    fm_predictions, fm_probs = applier.get_fm_information(data_tensor, pdetector_results["pick_inds"], ppick_stats["mean"])
+                    fm_predictions, fm_probs = applier.get_fm_information(data_tensor, pdetector_results["pick_inds"], ppick_stats["y_pred"])
                     pdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
                                                                                                     pdetector_results["pick_inds"], 
-                                                                                                    ppick_stats["mean"])
+                                                                                                    ppick_stats["y_pred"])
                 
-                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_stats["mean"], fm_predictions, fm_probs, num_channels=num_channels,
+                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_stats["y_pred"], fm_predictions, fm_probs, num_channels=num_channels,
                                             swag_info=ppick_stats)
-                    applier.save_swag_predictions(ensemble_ppick_corrections, self.output_dir, stat, date, "P")
+                    applier.save_swag_predictions(ensemble_ppick_corrections, stat, date, "P")
 
                 if num_channels == 3:
                     if not self.use_swag:
@@ -1028,12 +1033,12 @@ class apply_models():
                         spick_stats = applier.calibrate_swag_predictions(ensemble_spick_corrections, self.swag_s_lb, self.swag_s_ub)
                         sdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
                                                                                                     sdetector_results["pick_inds"], 
-                                                                                                    spick_stats["mean"])
+                                                                                                    spick_stats["y_pred"])
 
-                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_stats["mean"], num_channels=num_channels,swag_info=spick_stats)
-                        applier.save_swag_predictions(ensemble_spick_corrections, self.output_dir, stat, date, "S")
+                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_stats["y_pred"], num_channels=num_channels,swag_info=spick_stats)
+                        applier.save_swag_predictions(ensemble_spick_corrections, stat, date, "S")
 
-                applier.save_results_to_csv(f'{self.catalog_file}.csv')
+                applier.save_results_to_csv()
 
 if __name__ == "__main__":
     #### Set Parameters and Initialize the Classes ####

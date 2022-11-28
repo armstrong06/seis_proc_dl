@@ -18,7 +18,7 @@ CFG = {
     "models":{
         "pDetector3c": "pDetectorMew_model_026.pt", 
         "sDetector": "sDetector_model032.pt", 
-        "swagPPicker": ["pPicker_seed1_swag61.pt", "pPicker_seed2_swag61.pt", "pPicker_seed3_swag61.pt"], 
+        "swagPPicker": ["pPicker_swag60_seed1.pt", "pPicker_swag60_seed2.pt", "pPicker_swag60_seed3.pt"], 
         "fmPicker": "fmPicker_model002.pt",
         "swagSPicker": ["sPicker_swag56_seed1.pt", "sPicker_swag56_seed2.pt", "sPicker_swag56_seed3.pt"],
         "pDetector1c":"oneCompPDetectorMEW_model_022.pt"
@@ -32,24 +32,26 @@ CFG = {
         "K": 20,
         "num_workers": 4,
         "cov_mat":True,
-        "N": 30,
         "p_train_file":"uuss_train_4s_1dup.h5",
         "p_data_path":"/home/armstrong/Research/git_repos/patprob/no_duplicates/uuss_data/p_resampled",
         "s_train_file":"uuss_train_6s_1dup.h5",
         "s_data_path":"/home/armstrong/Research/git_repos/patprob/no_duplicates/uuss_data/s_resampled/",
         "pred_out_dir": f"swag_predictions", 
-        "P_calibration_file":"p_calibration_model.joblib",
-        "S_calibration_file":"s_calibration_model.joblib",
+        "P_calibration_file":"p_calibration_model_medians.joblib",
+        "S_calibration_file":"s_calibration_model_medians.joblib",
         "calibration_path":None,
         "CI_lower_bound":0.05,
         "CI_upper_bound":0.95,
-        "N_P":25,
-        "N_S":50
+        "N_P":1,#40,
+        "N_S":1, #50,
+        "picker_summary_method":"median"
     },
     "options":{
-        "device": "cpu", #cuda:0",
+        "device": "cuda:0",
         "single_stat_string": None,
         "debug_s_detector": False,
         "debug_inds_file":None,
+        "p_detection_thresh":0.75,
+        "s_detection_thresh":0.75
     },
 }
