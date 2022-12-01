@@ -24,7 +24,7 @@ CFG = {
         "pDetector1c":"oneCompPDetectorMEW_model_022.pt"
         },
     "output_file_names":{
-        "catalog_file":"YGV.0403",
+        "catalog_file":"20221128_swag_pick_catalog",
         "output_probability_file":None,
     },
     "swag_info":{
@@ -35,15 +35,15 @@ CFG = {
         "p_train_file":"uuss_train_4s_1dup.h5",
         "p_data_path":"/home/armstrong/Research/git_repos/patprob/no_duplicates/uuss_data/p_resampled",
         "s_train_file":"uuss_train_6s_1dup.h5",
-        "s_data_path":"/home/armstrong/Research/git_repos/patprob/no_duplicates/uuss_data/s_resampled/",
+        "s_data_path":"/home/armstrong/Research/git_repos/patprob/no_duplicates/uuss_data/s_resampled",
         "pred_out_dir": f"swag_predictions", 
         "P_calibration_file":"p_calibration_model_medians.joblib",
         "S_calibration_file":"s_calibration_model_medians.joblib",
         "calibration_path":None,
         "CI_lower_bound":0.05,
         "CI_upper_bound":0.95,
-        "N_P":1,#40,
-        "N_S":1, #50,
+        "N_P":40,
+        "N_S":50,
         "picker_summary_method":"median"
     },
     "options":{

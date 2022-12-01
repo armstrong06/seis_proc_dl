@@ -54,7 +54,7 @@ class swag_picker():
         eps = 1e-12
         model_cfg = getattr(swag_models, model_name)
         self.cov_mat = cov_mat
-
+        self.seed = seed
         # self.loaders = swag_seismic_data.loaders(
         #     train_filename,
         #     None,
@@ -88,6 +88,10 @@ class swag_picker():
         #     num_workers=self.num_workers,
         #     pin_memory=True,
         # )
+        torch.backends.cudnn.benchmark = True
+        torch.manual_seed(self.seed)
+        torch.cuda.manual_seed(self.seed)
+
         predictions = np.zeros((len(dset_loader.dataset), N))
         for i in range(N):
             self.model.sample(scale=scale, cov=self.cov_mat)
@@ -411,8 +415,8 @@ class apply_models():
             assert st[0].stats.npts == st[1].stats.npts == st[2].stats.npts
 
         npts=st[0].stats.npts
-        # TODO: REMOVE THIS
-        npts = 60*60*100
+        # # Use this for debugging
+        # npts = 60*60*100
         # number of times to move the window 
         n_intervals = (npts-self.unet_window_length)//self.sliding_interval + 1
 
@@ -421,8 +425,8 @@ class apply_models():
     def stream_to_tensor_3c(self, st_preproc):
         npts=st_preproc[0].stats.npts
         # Start index of each sliding window
-        # TODO: REMOVE THIS
-        npts = 60*60*100
+        # Use this for debugginh
+        # npts = 60*60*100
         cont_data = np.zeros((npts, 3))
         order = {"E":0, "1":0, "N":1, "2":1, "Z":2}
         tr0_ind = order[st_preproc[0].stats.channel[-1]]
@@ -437,7 +441,7 @@ class apply_models():
         cont_data[:, tr0_ind] = st_preproc[0].data[:npts]
         cont_data[:, tr1_ind] = st_preproc[1].data[:npts]
         cont_data[:, tr2_ind] = st_preproc[2].data[:npts]
-        print("Reducing data for testing", cont_data.shape)
+        # print("Reducing data for testing", cont_data.shape)
         return cont_data
 
     def stream_to_tensor_1c(self, st_preproc):
@@ -627,8 +631,8 @@ class apply_models():
     def concat_probs(self, edge_probs, inner_probs, npts):
         edge_case_width = (self.unet_window_length - 2*self.center_window)//2 + 2*self.center_window
         all_posterior_probs = np.concatenate([edge_probs[0, 0:edge_case_width], inner_probs.flatten(), edge_probs[1, -edge_case_width:]])
-        #TODO: comment this back in
-        #assert len(all_posterior_probs) == npts
+        #Remove this line for debugging
+        assert len(all_posterior_probs) == npts
         return all_posterior_probs
 
     def apply_cnn(self, model, phase, cont_data, pick_inds, batch_size, n_classes=1):
@@ -844,7 +848,6 @@ class apply_models():
 
         return arrival_times
 
-    # TODO: Update for swag
     def update_results(self, tr_stats, pick_dict, phase_type, pick_corrections=None, fm_predictions=None, fm_probs=None, num_channels=3, swag_info=None):
         arrival_times = pick_dict["arrival_times"]
         pick_probs = pick_dict["pick_probs"]
@@ -900,8 +903,8 @@ class apply_models():
         pred_std = np.std(predictions, axis=1)
         df_data = {"y_pred":y_pred, "std":pred_std}
         df = pd.DataFrame(data=df_data)
-        y_lb = df.apply(lambda x: norm.ppf(lb_transform, x["y_pred"], x["std"]), axis=1).values[0]
-        y_ub = df.apply(lambda x: norm.ppf(ub_transform, x["y_pred"], x["std"]), axis=1).values[0]
+        y_lb = df.apply(lambda x: norm.ppf(lb_transform, x["y_pred"], x["std"]), axis=1).values
+        y_ub = df.apply(lambda x: norm.ppf(ub_transform, x["y_pred"], x["std"]), axis=1).values
 
         summary = {"y_pred":y_pred, "std": pred_std, "lb": y_lb, "ub": y_ub}
 
@@ -931,7 +934,7 @@ class apply_models():
             dates.add(date[1])
         dates = np.sort(list(dates))
     
-        dates = dates[-1:] #dates[5:] # TODO: REMOVE THIS
+        #dates = dates[-1:] #dates[5:] # TODO: REMOVE THIS
         print(dates)
         # Iterate over the dates
         for date in dates:
