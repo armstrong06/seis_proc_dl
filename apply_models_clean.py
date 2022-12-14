@@ -604,7 +604,7 @@ class apply_models():
             spick_dict = self.detector_results_to_dict(s_pick_probs, s_pick_inds, s_pick_widths)
             print(f'Found {len(s_pick_inds)} S arrivals above {self.s_detection_thresh} threshold')
             if save_probs is not None:
-                file = h5py.File(save_probs, "w")
+                file = h5py.File(os.path.join(self.output_dir, save_probs), "w")
                 file.create_dataset("p_proba", data=all_p_posterior_probs)
                 file.create_dataset("s_proba", data=all_s_posterior_probs)
                 file.close()
@@ -612,7 +612,7 @@ class apply_models():
             return ppick_dict, spick_dict
 
         if save_probs is not None:
-                file = h5py.File(save_probs, "w")
+                file = h5py.File(os.path.join(self.output_dir, save_probs), "w")
                 file.create_dataset("p_proba", data=all_p_posterior_probs)
                 file.close()
 
@@ -848,7 +848,7 @@ class apply_models():
 
         return arrival_times
 
-    def update_results(self, tr_stats, pick_dict, phase_type, pick_corrections=None, fm_predictions=None, fm_probs=None, num_channels=3, swag_info=None):
+    def update_results(self, tr_stats, pick_dict, phase_type, pick_ids, pick_corrections=None, fm_predictions=None, fm_probs=None, num_channels=3, swag_info=None):
         arrival_times = pick_dict["arrival_times"]
         pick_probs = pick_dict["pick_probs"]
         pick_widths = pick_dict["pick_widths"]
@@ -867,7 +867,8 @@ class apply_models():
                 "phase_type":phase_type,
                 "arrival_time": arrival_times.item(pick_ind),
                 "detection_probability": pick_probs.item(pick_ind),
-                "approximate_width": pick_widths.item(pick_ind)
+                "approximate_width": pick_widths.item(pick_ind),
+                "pick_id": pick_ids.item(pick_ind)
             }
             if pick_corrections is not None:
                 pick_summary["applied_pick_correction"] = pick_corrections.item(pick_ind)
@@ -910,13 +911,13 @@ class apply_models():
 
         return summary
 
-    def save_swag_predictions(self, predictions, station, date, phase):
+    def save_swag_predictions(self, predictions, station, date, phase, pick_ids):
         pred_outdir = os.path.join(self.output_dir, "swag_predictions")
         if not os.path.exists(pred_outdir):
             print("Making director", pred_outdir)
             os.makedirs(pred_outdir)
         outfile = f"{pred_outdir}/{station.split('*')[0]}.{station.split('*')[1]}.{date}.{phase}.predictions"
-        np.savez(outfile, predictions=predictions)
+        np.savez(outfile, predictions=predictions, pick_ids=pick_ids)
 
     def apply_to_data(self):
         if self.debug_inds_file is not None and self.debug_s_detector:
@@ -934,7 +935,8 @@ class apply_models():
             dates.add(date[1])
         dates = np.sort(list(dates))
     
-        #dates = dates[-1:] #dates[5:] # TODO: REMOVE THIS
+        #dates = dates[-1:] 
+        dates = [dates[5]] # TODO: REMOVE THIS
         print(dates)
         # Iterate over the dates
         for date in dates:
@@ -981,9 +983,11 @@ class apply_models():
                 if num_channels == 3:
                     data_tensor = applier.stream_to_tensor_3c(st_preproc)
                     pdetector_results, sdetector_results = applier.get_detector_picks(data_tensor, n_intervals, num_channels=num_channels, 
-                    save_probs=self.output_probability_file, debug_s=self.debug_s_detector, debug_inds=debug_inds)
+                    save_probs=self.output_probability_file, debug_s=self.debug_s_detector, debug_inds=debug_inds)                    
+                    spick_ids = np.arange(len(self.results)+len(pdetector_results["pick_inds"]), len(self.results)+len(sdetector_results["pick_inds"]))
+
                     if self.debug_s_detector:
-                        f = h5py.File(f'{self.catalog_file}.{date}.h5', "w")
+                        f = h5py.File(os.path.join(self.output_dir, f'{self.catalog_file}.{date}.h5'), "w")
                         f.create_dataset("continuous_data", data=sdetector_results[0])
                         f.create_dataset("posterior_probs", data=sdetector_results[1])
                         f.create_dataset("presigmoid_output", data=sdetector_results[2])
@@ -993,7 +997,7 @@ class apply_models():
                         f.close()
                         continue
                     elif debug_inds is not None:
-                        f = h5py.File(f'{self.catalog_file}.{date}.h5', "w")
+                        f = h5py.File(os.path.join(self.output_dir, f'{self.catalog_file}.{date}.h5'), "w")
                         f.create_dataset("continuous_data", data=sdetector_results[0])
                         f.create_dataset("posterior_probs", data=sdetector_results[1])
                         f.create_dataset("presigmoid_output", data=sdetector_results[2])
@@ -1005,13 +1009,15 @@ class apply_models():
                     data_tensor = applier.stream_to_tensor_1c(st_preproc)
                     pdetector_results, _ = applier.get_detector_picks(data_tensor, n_intervals, num_channels=num_channels, save_probs=self.output_probability_file)
                 
+                ppick_ids = np.arange(len(self.results), len(self.results)+len(pdetector_results["pick_inds"]))
+
                 if not self.use_swag:
                     ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"])
                     fm_predictions, fm_probs = applier.get_fm_information(data_tensor, pdetector_results["pick_inds"], ppick_corrections)
                     pdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
                                                                                                     pdetector_results["pick_inds"], 
                                                                                                     ppick_corrections)
-                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_corrections, fm_predictions, fm_probs, num_channels=num_channels)
+                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_ids, ppick_corrections, fm_predictions, fm_probs, num_channels=num_channels)
                 else:
                     ensemble_ppick_corrections = applier.get_p_pick_corrections(data_tensor, pdetector_results["pick_inds"], N=self.N_P)
                     ppick_stats = applier.calibrate_swag_predictions(ensemble_ppick_corrections, self.swag_p_lb, self.swag_p_ub)
@@ -1020,9 +1026,9 @@ class apply_models():
                                                                                                     pdetector_results["pick_inds"], 
                                                                                                     ppick_stats["y_pred"])
                 
-                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_stats["y_pred"], fm_predictions, fm_probs, num_channels=num_channels,
+                    applier.update_results(st_preproc[0].stats, pdetector_results, "P", ppick_ids, ppick_stats["y_pred"], fm_predictions, fm_probs, num_channels=num_channels,
                                             swag_info=ppick_stats)
-                    applier.save_swag_predictions(ensemble_ppick_corrections, stat, date, "P")
+                    applier.save_swag_predictions(ensemble_ppick_corrections, stat, date, "P", ppick_ids)
 
                 if num_channels == 3:
                     if not self.use_swag:
@@ -1030,7 +1036,7 @@ class apply_models():
                         sdetector_results["arrival_times"] = applier.calculate_absolute_arrival_times(st_preproc[0].stats.starttime_epoch, 
                                                                                                     sdetector_results["pick_inds"], 
                                                                                                     spick_corrections)
-                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_corrections)
+                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_ids, spick_corrections)
                     else:
                         ensemble_spick_corrections = applier.get_s_pick_corrections(data_tensor, sdetector_results["pick_inds"], N=self.N_S)
                         spick_stats = applier.calibrate_swag_predictions(ensemble_spick_corrections, self.swag_s_lb, self.swag_s_ub)
@@ -1038,8 +1044,8 @@ class apply_models():
                                                                                                     sdetector_results["pick_inds"], 
                                                                                                     spick_stats["y_pred"])
 
-                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_stats["y_pred"], num_channels=num_channels,swag_info=spick_stats)
-                        applier.save_swag_predictions(ensemble_spick_corrections, stat, date, "S")
+                        applier.update_results(st_preproc[0].stats, sdetector_results, "S", spick_ids, spick_stats["y_pred"], num_channels=num_channels,swag_info=spick_stats)
+                        applier.save_swag_predictions(ensemble_spick_corrections, stat, date, "S", spick_ids)
 
                 applier.save_results_to_csv()
 
