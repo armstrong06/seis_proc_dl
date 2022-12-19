@@ -54,9 +54,6 @@ class Picker(BaseModel):
         self.freeze_convolutional_layers = self.config.model.freeze_convolutional_layers
         self.random_seed = self.config.model.random_seed
 
-        # Data Config Params
-        self.max_dt = self.config.data.max_dt
-
         self.model_path = self.model_out_dir  # self.make_model_path(self.model_out_dir)
         self.evaluator = None
 
