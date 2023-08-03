@@ -1,1 +1,1 @@
-# Various deep learning models to process seismic events
+# Deep-learning models to process seismic signals
