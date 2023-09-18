@@ -54,12 +54,6 @@ class Picker(BaseModel):
         self.freeze_convolutional_layers = self.config.model.freeze_convolutional_layers
         self.random_seed = self.config.model.random_seed
 
-        # Data Config Params
-        self.time_series_len = self.config.data.time_series_length
-        self.dt = self.config.data.dt
-        self.n_duplicates = self.config.data.n_duplicates
-        self.max_dt = self.config.data.max_dt
-
         self.model_path = self.model_out_dir  # self.make_model_path(self.model_out_dir)
         self.evaluator = None
 
@@ -101,10 +95,10 @@ class Picker(BaseModel):
 
         self.evaluation_epoch = check_point["epoch"]
 
-    def load_data(self, data_file, batch_size, n_dups, shuffle=True):
+    def load_data(self, data_file, batch_size, shuffle=True):
         # TODO: This didn't work if data_file path is relative to the main script location
         X, Y = self.read_data(data_file)
-        print("Randomizing start times")
+        #print("Randomizing start times")
         # X, Y = randomize_start_times_and_normalize(X, time_series_len=self.time_series_len,
         #                                                        max_dt=self.max_dt, dt=self.dt, n_duplicate=n_dups,
         #                                                         random_seed=self.random_seed)
@@ -123,7 +117,7 @@ class Picker(BaseModel):
         return CNNNet(num_channels=num_channles, min_lag = -max_dt_nn, max_lag = +max_dt_nn).to(self.device)
 
     def train(self):
-        train_loader = self.load_data(self.train_file, self.batch_size, self.n_duplicates)
+        train_loader = self.load_data(self.train_file, self.batch_size)
         validation_loader = None
         if self.validation_file is not None:
             validation_loader = self.load_data(self.validation_file, 512, 1)
@@ -157,7 +151,7 @@ class Picker(BaseModel):
         if batch_size is None:
             batch_size = self.batch_size
 
-        evaluator = PickEvaluator(self.model, self.device, self.time_series_len, self.dt, batch_size, 
+        evaluator = PickEvaluator(self.model, self.device, batch_size, 
                                     self.model_out_dir, self.results_out_dir, random_seed=self.random_seed)
 
         evaluator.apply_model(X, Y, epochs, test_type, df=df, do_shift=shift_pred)

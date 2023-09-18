@@ -1,11 +1,12 @@
 import h5py
 import numpy as np
 
-pref = "/home/armstrong/Research/new_boxcar_widths/pDetector_mew/uuss_data"
-split_type = "validate"
+pref = "/home/armstrong/Research/constant_boxcar_widths_LG/oneCompPDetector_mew/uuss_data"
+split_type = "train"
 
 org_file = f"{pref}/combined.{split_type}.10s.1dup.h5"
 mew_file = f"{pref}/{split_type}P.10s.1dup_synthetic_multievent_waveforms.h5"
+new_file = f"{pref}/combined.{split_type}.10s.1dup.MEW.h5"
 
 print(org_file)
 print(mew_file)
@@ -24,7 +25,7 @@ with h5py.File(org_file, "r") as hf:
     org_Y = hf["Y"][:]
     org_T = hf["Pick_index"][:]
     
-with h5py.File(org_file, "w") as hf:
+with h5py.File(new_file, "w") as hf:
     hf.create_dataset("X", data=np.concatenate([mew_X, org_X], axis=0))
     hf.create_dataset("Y", data=np.concatenate([mew_Y, org_Y], axis=0))
     hf.create_dataset("Pick_index", data=np.concatenate([mew_T, org_T], axis=0))

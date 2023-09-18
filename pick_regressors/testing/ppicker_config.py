@@ -1,4 +1,4 @@
-"""Model config in json format for testing 3C, P-picker """
+"""Model config in json format for testing 1C, P-picker """
 
 CFG = {
     "data":{

@@ -150,7 +150,7 @@ def plot_residual_hist(df_valid_resid, opt_model, meta_df=None, bins=np.arange(-
 
     plt.xlabel("Pick Residual Samples")
     plt.ylabel("Counts")
-    plt.xlim(-50, 50)
+    #plt.xlim(-50, 50)
     plt.show()
 
 def plot_mew_hist(df_valid_resid, epoch, bins=np.arange(-50, 50, 1), epoch_key="epoch"):
