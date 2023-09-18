@@ -6,7 +6,7 @@ import pandas as pd
 from utils.file_manager import Write
 
 window_duration = 10.0
-n_duplicate_train = 2
+n_duplicate_train = 1
 dt = 0.01  # Sampling period (seconds)
 train_frac = 0.8
 noise_train_frac = 0.8
@@ -20,23 +20,23 @@ pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/wav
 ys_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseYellowstoneWaveformsPermuted.h5'
 magna_noise_h5_filename = f'{pref}/noise_ENZ/allNoiseMagnaWaveformsPermuted.P.10s.h5'
 
-pref = '/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sDetector'
-outdir = "constant_bc_width/LG_s_resampled_10s"
+pref = f'{pref}/sDetector'
+outdir = "constant_bc_width/NGB_S_resampled_nodups"
 
 # For NGB events - Don't need these for STEAD data
 # Remove events within these bounds
-# lat_min = 44.680
-# lat_max = 44.870
-# lon_max = 110.850
-# lon_min = 110.640
+lat_min = 44.680
+lat_max = 44.870
+lon_max = 110.850
+lon_min = 110.640 #110.640 was old, smaller bound
 # Larger location grid bounds
-lat_min = 44.35
-lat_max = 45.0
-lon_max = 111.46
-lon_min = 110.1
+# lat_min = 44.35
+# lat_max = 45.0
+# lon_max = 111.46
+# lon_min = 110.1
 date_min = 130901  # YYMMDD
 date_max = 140630  # YYMMDD
-extracted_name =  "LocationGrid"
+extracted_name =  "NGB"
 
 ################ End Set Params ####################
 

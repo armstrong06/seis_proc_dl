@@ -615,8 +615,8 @@ class CreateMEW():
 if __name__ == "__main__":
     split_type = "validate"
 
-    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pDetector"
-    split_pref = f"{pref}/NEW_p_resampled_10s"
+    pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/oneCompPdetector"
+    split_pref = f"{pref}/constant_bc_width/LG_onecomp_p_resampled_10s"
     outpref = f"{split_pref}/synthetic_multievent_waveforms"
 
     outfile_pref = f"{outpref}/{split_type}P.10s.1dup"
@@ -639,11 +639,11 @@ if __name__ == "__main__":
     max_magnitude_sep = 1.5
 
     # Read in entire 3C catalog
-    entire_cat_df = pd.read_csv(f"{pref}/P_current_earthquake_catalog.csv")
+    entire_cat_df = pd.read_csv(f"{pref}/current_earthquake_catalog_1c.csv")
     entire_cat_df = entire_cat_df[entire_cat_df["phase"] == "P"]
 
     # Read in untrimmed/unnormalized data
-    X = mew.read_h5file(f"{pref}/P_current_earthquake_catalog.h5")
+    X = mew.read_h5file(f"{pref}/current_earthquake_catalog_1c.h5")
 
     # Read in split catalog
     df = pd.read_csv(f"{split_pref}/currenteq.{split_type}.10s.1dup.csv", dtype={'location'  : object})

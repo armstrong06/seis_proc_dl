@@ -5,13 +5,13 @@ import h5py
 import os
 import numpy as np
 
-time_series_len=600
-max_dt=0.7
+time_series_len=400
+max_dt=0.5
 dt=0.01
 n_duplicate=1
 random_seed=82323
-pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/sPicker/s_resampled_picker_locationgrid"
-split_types = ["LocationGrid"]
+pref = "/uufs/chpc.utah.edu/common/home/koper-group1/alysha/Yellowstone/data/waveformArchive/pPicker/p_picker_resampled"
+split_types = ["NGB"]
 
 for split_type in split_types:
     input_file = f"{pref}/uuss_{split_type}.h5"
