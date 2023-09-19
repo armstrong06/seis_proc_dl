@@ -4,13 +4,13 @@ import numpy as np
 import os 
 from torch.utils.data.sampler import SubsetRandomSampler
 import sys
-sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl")
+#sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl")
 from model.base_model import BaseModel
 from utils.model_helpers import NumpyDataset
-sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl/detectors")
-from executor.unet_trainer import UNetTrainer
-from evaluation.unet_evaluator import UNetEvaluator
-from evaluation.mulitple_model_evaluation import MultiModelEval
+#sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl/detectors")
+from ..executor.unet_trainer import UNetTrainer
+from ..evaluation.unet_evaluator import UNetEvaluator
+from ..evaluation.mulitple_model_evaluation import MultiModelEval
 import pandas as pd
 import random
 

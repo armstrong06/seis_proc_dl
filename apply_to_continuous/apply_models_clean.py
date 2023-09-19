@@ -25,7 +25,6 @@ from utils.config_apply_models import Config
 
 from joblib import load
 
-sys.path.append("..atucus/swag_modified")
 from swag import seismic_data as swag_seismic_data
 from swag import losses as swag_losses
 from swag import models as swag_models
