@@ -33,17 +33,24 @@ def load_data(file, min_signal_percent=1, expected_file_duration_s=86400):
     st = obspy.read(file)
 
     sampling_rate = round(st[0].stats.sampling_rate)
+    # TODO: this only works for days, not hours - fine for me
+    # TODO: If the startime happens to be on the day before, it'll mess this up
+    starttime = st[0].stats.starttime
+    desired_start = UTC(starttime.year, starttime.month, starttime.day)
+    desired_end = desired_start + expected_file_duration_s
 
     # If there is not enough signal in this day, skip the day
     total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
     max_npts = expected_file_duration_s*round(sampling_rate)
     if (total_npts/max_npts)*100 < min_signal_percent:
         # Return the entire file period as a gap
-        return None, format_edge_gaps(st, expected_file_duration_s, entire_file=True)
+        return None, [format_edge_gaps(st, desired_start, desired_end, entire_file=True)]
 
     # Save gaps so I know to ignore any detections in that region later
-    gaps = st.get_gaps()
-    if len(gaps) > 0:
+    # Don't save gaps if they are smaller than 5 samples for 100 Hz, 2 samples for 40 Hz
+    gaps = st.get_gaps(min_gap=0.05)
+    # Still need to interpolate the gaps if they are less than min_gap
+    if len(st.get_gaps()) > 0:
         # Sometimes the gaps have different sampling rates and delta values, not totally sure why. 
         # The sampling rates do not equal npts/duration for the gap either.
         try:
@@ -57,27 +64,21 @@ def load_data(file, min_signal_percent=1, expected_file_duration_s=86400):
 
             st.merge(fill_value='interpolate')
 
-    # TODO: Do something with this meta info        
-    starttime = st[0].stats.starttime
-    endtime = st[0].stats.endtime
-    npts = st[0].stats.npts
-
+    # Make sure the trace is the desired length (fill in ends if needed) TODO: is it possible that the files are too long?
     # Check for gaps at the start/end of the day and save if they exist
-    start_gap, end_gap = format_edge_gaps(st, expected_file_duration_s)
+    start_gap, end_gap = format_edge_gaps(st, desired_start, desired_end)
     if start_gap is not None:
         gaps.insert(0, start_gap)
+        # Fill the start of the trace with the first value, if needed
+        st = st.trim(starttime=desired_start, pad=True, fill_value=st[0].data[0])
     if end_gap is not None:
         gaps += [end_gap]
+        # Fill the end of the trace with the last value, if needed
+        st = st.trim(endtime=desired_end, pad=True, fill_value=st[0].data[-1])
 
     return st, gaps 
 
-    # TODO: Something to handle variations in the start/end time of the channels
-    # if len(st) > 1:
-    #     st, starttime, endtime = match_channel_durations(st)
-    #     npts = 
-
-
-def format_edge_gaps(st, max_duration_s, entire_file=False):
+def format_edge_gaps(st, desired_start, desired_end, entire_file=False):
     """Checks for gaps greater than 1 second at the start and end of an Obspy Stream.
     Only looks at the first trace in the stream. *The desired endtime may be off by ~1 second*
     If a gap exists returns a list in the format of Obspy's get_gaps(), otherwise returns None.
@@ -91,15 +92,11 @@ def format_edge_gaps(st, max_duration_s, entire_file=False):
         tupple or list: tupple of gap info lists for the beginning and end of the trace or a list for the entire file gap. 
     """
     starttime = st[0].stats.starttime
-    endtime = st[0].stats.endtime
+    endtime = st[0].stats.endtime 
     sampling_rate = st[0].stats.sampling_rate
-    # TODO: this only works for days, not hours - fine for me
-    # TODO: If the startime happens to be on the day before, it'll mess this up
 
-    desired_start = UTC(starttime.year, starttime.month, starttime.day)
-    desired_end = starttime + max_duration_s
-    
     if entire_file:
+        max_duration_s = desired_end - desired_start
         return [st[0].stats.network, st[0].stats.station, st[0].stats.location, st[0].stats.channel, 
                      desired_start, desired_end, max_duration_s, int(max_duration_s*sampling_rate)]
 
