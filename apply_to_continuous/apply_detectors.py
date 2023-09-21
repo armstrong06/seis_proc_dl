@@ -2,22 +2,10 @@ import obspy
 from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
 
-def match_channel_durations(st):
-    """
-    Make sure that all channels have the same start and end times, doesn't matter what they are 
-    just make sure that they are the same and keep track of them. Could also pad/trim to exact hours?
-    """
-    # Go with the latest start time
-    starttime = np.max([st[i].stats.starttime for i in range(3)])
-    # Go with the earliest end time
-    endtime = np.min([st[i].stats.endtime for i in range(3)])
-
-    return st.trim(starttime, endtime), starttime, endtime 
-
 def get_n_windows(npts, window_length, sliding_interval):
     return (npts-window_length)//sliding_interval + 1
 
-def load_data(file, min_signal_percent=1, expected_file_duration_s=86400):
+def load_channel_data(file, min_signal_percent=1, expected_file_duration_s=86400):
     """Reads in a miniseed file and check for gaps. Gaps are interpolated. 
 
     Args:
