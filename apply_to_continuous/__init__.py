@@ -1,3 +1,3 @@
+# TODO: figure out a better way to import swag_modified
 import sys
 sys.path.append("../atucus/swag_modified")
-# from atucus.swag_modified import swag
