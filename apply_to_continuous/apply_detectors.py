@@ -5,37 +5,43 @@ import numpy as np
 class DataLoader():
     def __init__(self) -> None:
         self.continuous_data = None
-        self.meta_data = None
+        self.metadata = None
         self.gaps = None
 
-    def load_3c_data(self, fileE, fileN, fileZ):
-        st_E, gaps_E = self.load_channel_data(fileE)
-        st_N, gaps_N = self.load_channel_data(fileN)
-        st_Z, gaps_Z = self.load_channel_data(fileZ)
+    def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1):
+        st_E, gaps_E = self.load_channel_data(fileE, 
+                                              min_signal_percent=min_signal_percent)
+        st_N, gaps_N = self.load_channel_data(fileN, 
+                                              min_signal_percent=min_signal_percent)
+        st_Z, gaps_Z = self.load_channel_data(fileZ, 
+                                              min_signal_percent=min_signal_percent)
 
         # If one of the channels was skipped, return the entire day as a gap
+        #TODO: IF the vertical comp still has enough signal, should I keep it?
+        # When an entire day is removed, remove orientation from gap channel info
         if st_E is None:
-            self.continuous_data = None
+            gaps_E[0][3] = gaps_E[0][3][0:2] + "?"
             self.gaps = gaps_E
+            return
         elif st_N is None:
-            self.continuous_data = None
+            gaps_N[0][3] = gaps_N[0][3][0:2] + "?"
             self.gaps = gaps_N
+            return
         elif st_Z is None:
-            self.continuous_data = None
+            gaps_Z[0][3] = gaps_Z[0][3][0:2] + "?"
             self.gaps = gaps_Z
+            return
 
         starttimes = [st_E[0].stats.starttime, st_N[0].stats.starttime, st_Z[0].stats.starttime]
         endtimes = [st_E[0].stats.endtime, st_N[0].stats.endtime, st_Z[0].stats.endtime]
         npts = [st_E[0].stats.npts, st_N[0].stats.npts, st_Z[0].stats.npts]
+        dt = st_N[0].stats.delta
 
-        assert abs(st_E[0].stats.starttime - st_N[0].stats.starttime) < st_N.stats.dt
-        assert abs(st_N[0].stats.starttime - st_Z[0].stats.starttime) < st_N.stats.dt
-        assert abs(st_E[0].stats.endtime - st_N[0].stats.endtime) < st_N.stats.dt
-        assert abs(st_N[0].stats.endtime - st_Z[0].stats.endtime) < st_N.stats.dt
-        assert st_E[0].stats.npts == st_N[0].stats.npts and st_N[0].stats.npts == st_Z[0].stats.npts
-
-        assert len(np.unique(starttimes)) == 1
-        assert len(np.unique(endtimes)) == 1
+        # TODO: handle the failures in some way
+        assert abs(starttimes[0] - starttimes[1]) < dt
+        assert abs(starttimes[1] - starttimes[2]) < dt
+        assert abs(endtimes[0] - endtimes[1]) < dt
+        assert abs(endtimes[1] - endtimes[2]) < dt
         assert len(np.unique(npts)) == 1
 
         cont_data = np.zeros((npts[0], 3))
@@ -47,8 +53,37 @@ class DataLoader():
 
         self.continuous_data = cont_data
         self.gaps = gaps
-        # TODO: Update this
-        self.meta_data = st_E[0].stats
+        self.save_meta_data(st_E[0].stats)
+
+    def load_1c_data(self, file, min_signal_percent=1):
+        st, gaps = self.load_channel_data(file, 
+                                              min_signal_percent=min_signal_percent)
+        if st is None:
+            self.gaps = gaps
+            return
+        cont_data = np.zeros((st[0].stats.npts, 1))
+        cont_data[:, 0] = st[0].data
+        self.continuous_data = cont_data
+        self.gaps = gaps
+        self.save_meta_data(st[0].stats)
+        
+    def save_meta_data(self, stats, three_channels=True):
+        meta_data = {}
+        meta_data["sampling_rate"] = stats['sampling_rate']
+        meta_data['dt'] = stats['delta']
+        meta_data['starttime'] = stats['starttime']
+        meta_data['endtime'] = stats['endtime']
+        meta_data['npts'] = stats['npts']
+        meta_data['network'] = stats['network']
+        meta_data['station'] = stats['station']
+        meta_data['starttime_epoch'] = stats['starttime'] - UTC("19700101")
+        meta_data['endtime_epoch'] = stats['endtime'] - UTC("19700101")
+        chan = stats['channel']
+        if three_channels:
+            chan = f'{chan[0:2]}?'
+        meta_data['channel'] = chan
+
+        self.metadata = meta_data
 
     def load_channel_data(self, file, min_signal_percent=1, expected_file_duration_s=86400):
         """Reads in a miniseed file and check for gaps. Gaps are interpolated. 
@@ -127,7 +162,7 @@ class DataLoader():
         """
         starttime = st[0].stats.starttime
         endtime = st[0].stats.endtime 
-        sampling_rate = st[0].stats.sampling_rate
+        sampling_rate = round(st[0].stats.sampling_rate)
 
         if entire_file:
             max_duration_s = desired_end - desired_start

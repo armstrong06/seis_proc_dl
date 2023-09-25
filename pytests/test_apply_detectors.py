@@ -3,6 +3,7 @@ from apply_to_continuous import apply_detectors
 from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
 import obspy
+from obspy.core.util.attribdict import AttribDict
 
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/example_files'
 
@@ -29,6 +30,8 @@ def test_load_data_not_enough_signal():
     st, gaps = dl.load_channel_data(file, min_signal_percent=5)
     assert st == None
     assert len(gaps) == 1
+    assert gaps[0][-1] == 8640000
+    assert gaps[0][-2] == 86400
 
 def test_load_data_filling_ends():
     dl = apply_detectors.DataLoader()
@@ -79,5 +82,110 @@ def test_load_data_small_gaps():
     assert st[0].stats.npts == 8640000
     assert len(st.get_gaps()) == 0 
 
+def test_load_3c_data():
+    fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    
+    dl = apply_detectors.DataLoader()
+    dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+    assert dl.continuous_data.shape == (8640000, 3)
+    assert len(dl.metadata.keys()) == 10
+    assert len(dl.gaps) == 3
+
+def test_save_meta_data_3c():
+    # Make dummy stats values
+    stats = obspy.core.trace.Stats()
+    stats.sampling_rate = 100.0
+    stats.delta = 0.01
+    stats.starttime = UTC(2002, 1, 1, 0, 0, 0, 6000)
+    stats.npts = 8640000
+    stats.network = 'WY'
+    stats.station = 'YMR'
+    stats.channel = 'HHE'
+    stats._format = 'MSEED'
+    stats.mseed =  AttribDict({'dataquality': 'M', 
+                                        'number_of_records': 1, 
+                                        'encoding': 'STEIM1', 
+                                        'byteorder': '>', 
+                                        'record_length': 4096, 
+                                        'filesize': 9326592})
+    dl = apply_detectors.DataLoader()
+    dl.save_meta_data(stats, three_channels=True)
+
+    # End time is a read only field in Stats => this is what is should end up being
+    endtime = UTC(2002, 1, 1, 23, 59, 59, 996000)
+
+    dl_meta = dl.metadata
+    # Mostly checking I didn't make any typos in the key name and that I didn't set the values
+    # in meta_data to the wrong stats field
+    assert dl_meta['sampling_rate'] == 100.0
+    assert dl_meta['dt'] == 0.01
+    assert dl_meta['starttime'] == stats.starttime
+    assert dl_meta['endtime'] == endtime    
+    assert dl_meta['npts'] == stats.npts
+    assert dl_meta['network'] == stats.network
+    assert dl_meta['station'] == stats.station
+    # Make sure the epoch time converts back to the utc time correctly
+    assert UTC(dl_meta['starttime_epoch']) == stats.starttime
+    assert UTC(dl_meta['endtime_epoch']) == endtime
+    # Make sure the 3C channel code has a ? for the orientation 
+    assert dl_meta['channel'] == "HH?"
+
+def test_save_meta_1c():
+    # Make dummy stats values
+    stats = obspy.core.trace.Stats()
+    stats.sampling_rate = 100.0
+    stats.delta = 0.01
+    stats.starttime = UTC(2002, 1, 1, 0, 0, 0, 6000)
+    stats.npts = 8640000
+    stats.network = 'WY'
+    stats.station = 'YMR'
+    stats.channel = 'HHZ'
+    stats._format = 'MSEED'
+    stats.mseed =  AttribDict({'dataquality': 'M', 
+                                        'number_of_records': 1, 
+                                        'encoding': 'STEIM1', 
+                                        'byteorder': '>', 
+                                        'record_length': 4096, 
+                                        'filesize': 9326592})
+    dl = apply_detectors.DataLoader()
+    dl.save_meta_data(stats, three_channels=False)
+    # Just need to check that the channel code for 1C stations has a Z for the orientation 
+    # everything else is the same as 3C
+    assert dl.metadata['channel'] == "HHZ"
+
+def test_load_3c_data_skip_day():
+    fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    
+    dl = apply_detectors.DataLoader()
+    dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
+    assert dl.continuous_data == None
+    assert dl.metadata == None
+    assert len(dl.gaps) == 1
+    assert dl.gaps[0][3] == "HH?"
+    
+def test_load_1c_data():
+    file = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    
+    dl = apply_detectors.DataLoader()
+    dl.load_1c_data(file, min_signal_percent=0)
+    assert dl.continuous_data.shape == (8640000, 1)
+    assert len(dl.metadata.keys()) == 10
+    assert len(dl.gaps) == 1
+    assert dl.gaps[0][3] == "HHZ"
+
+def test_load_1c_data_skip_day():
+    file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    
+    dl = apply_detectors.DataLoader()
+    dl.load_1c_data(file, min_signal_percent=1)
+    assert dl.continuous_data == None
+    assert dl.metadata == None
+    assert len(dl.gaps) == 1
+    assert dl.gaps[0][3] == "EHZ"
+
 if __name__ == '__main__':
-   test_load_data_filling_ends()
+    test_load_1c_data_skip_day()
