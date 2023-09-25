@@ -4,6 +4,8 @@ from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
 import obspy
 
+examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/example_files'
+
 def test_n_windows():
     dl = apply_detectors.DataLoader()
     npts = 1000
@@ -16,14 +18,14 @@ def test_n_windows():
 def test_load_data_different_sampling_rate_issue():
     dl = apply_detectors.DataLoader()
     # I know this has gaps in it
-    file = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
     st, _ = dl.load_channel_data(file, min_signal_percent=0)
     assert len(st.get_gaps()) == 0
 
 def test_load_data_not_enough_signal():
     dl = apply_detectors.DataLoader()
     # I know this has gaps in it
-    file = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
     st, gaps = dl.load_channel_data(file, min_signal_percent=5)
     assert st == None
     assert len(gaps) == 1
@@ -31,7 +33,7 @@ def test_load_data_not_enough_signal():
 def test_load_data_filling_ends():
     dl = apply_detectors.DataLoader()
     # I know this has gaps in it
-    file = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
     st, _ = dl.load_channel_data(file, min_signal_percent=0)
     # Check the startime
     assert (st[0].stats.starttime - UTC("2002-01-01")) < 1
@@ -42,7 +44,7 @@ def test_load_data_filling_ends():
 
 def test_load_data_end_gaps_added():
     dl = apply_detectors.DataLoader()
-    file = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+    file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
     _, gaps = dl.load_channel_data(file, min_signal_percent=0)  
     # Know there is 1 gap between signal and signals do not go to the end of the hour
     assert len(gaps) == 3 
@@ -50,7 +52,7 @@ def test_load_data_end_gaps_added():
     assert gaps[2][5] == UTC('2002-1-2')
 
 def test_load_data_small_gaps():
-    file = "/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/example.mseed"
+    file = f'{examples_dir}/example.mseed'
     
     # Make test example
     ex = np.zeros(24*60*60*100)
