@@ -1,14 +1,23 @@
 import obspy
 from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
+import logging
 
 class DataLoader():
-    def __init__(self) -> None:
+    def __init__(self, store_N_samples=0) -> None:
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
 
+        # TODO: needs consideration for missing or removed days
+        self.previous_continuous_data = None
+        self.previous_endtime = None
+        self.store_N_samples = store_N_samples
+
     def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1):
+
+        self.reset_loader()
+
         st_E, gaps_E = self.load_channel_data(fileE, 
                                               min_signal_percent=min_signal_percent)
         st_N, gaps_N = self.load_channel_data(fileN, 
@@ -49,13 +58,24 @@ class DataLoader():
         cont_data[:, 1] = st_N[0].data
         cont_data[:, 2] = st_Z[0].data
 
+        if self.store_N_samples > 0: 
+            self.prepend_data()
+
         gaps = gaps_E + gaps_N + gaps_Z
 
         self.continuous_data = cont_data
         self.gaps = gaps
         self.save_meta_data(st_E[0].stats)
+        
+        if self.store_N_samples > 0:
+            self.prepend_previous_data()
+            self.previous_continuous_data = cont_data[-self.store_N_samples:, :]
+            self.previous_endtime = endtimes[0]
 
     def load_1c_data(self, file, min_signal_percent=1):
+
+        self.reset_loader()
+
         st, gaps = self.load_channel_data(file, 
                                               min_signal_percent=min_signal_percent)
         if st is None:
@@ -63,10 +83,33 @@ class DataLoader():
             return
         cont_data = np.zeros((st[0].stats.npts, 1))
         cont_data[:, 0] = st[0].data
+
         self.continuous_data = cont_data
         self.gaps = gaps
         self.save_meta_data(st[0].stats)
-        
+
+        if self.store_N_samples > 0:
+            # Update continous data and the metadata to include the end of the previous trace
+            self.prepend_previous_data()
+            # Save the end of the current trace as the previous trace for nexttime
+            self.previous_continuous_data = cont_data[-self.store_N_samples:, :]
+            self.previous_endtime = endtimes[0]
+
+    def prepend_data(self):
+        new_starttime = self.metadata['starttime']
+        if self.previous_data is not None:
+            # The start of the current trace should be within one sample after the end of the previous trace
+            if ((current_starttime - self.previous_endtime) < self.metadata['dt'] and (current_starttime - self.previous_endtime) > 0):
+                self.cont_data = np.join([self.previous_data, cont_data])
+                self.metadata['starttime'] = self.previous_endtime
+            else:
+                logging.warning('Cannot concatenate previous days data, data is not continuous')
+
+    def reset_loader(self):
+        self.continuous_data = None
+        self.metadata = None
+        self.gaps = None
+
     def save_meta_data(self, stats, three_channels=True):
         meta_data = {}
         meta_data["sampling_rate"] = stats['sampling_rate']
