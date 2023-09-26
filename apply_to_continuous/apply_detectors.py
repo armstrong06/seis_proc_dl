@@ -10,8 +10,11 @@ class DataLoader():
         self.gaps = None
 
         # TODO: needs consideration for missing or removed days
+        # TODO: update previous data to be an obspy stream instead of numpy data because merging 
+        # is tricky
         self.previous_continuous_data = None
         self.previous_endtime = None
+        # TODO: this should be in seconds, if using before resampling
         self.store_N_samples = store_N_samples
 
     def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1):
@@ -81,6 +84,7 @@ class DataLoader():
         if st is None:
             self.gaps = gaps
             return
+        
         cont_data = np.zeros((st[0].stats.npts, 1))
         cont_data[:, 0] = st[0].data
 
@@ -93,14 +97,14 @@ class DataLoader():
             self.prepend_previous_data()
             # Save the end of the current trace as the previous trace for nexttime
             self.previous_continuous_data = cont_data[-self.store_N_samples:, :]
-            self.previous_endtime = endtimes[0]
+            self.previous_endtime = st[0].stats.endtime
 
-    def prepend_data(self):
-        new_starttime = self.metadata['starttime']
-        if self.previous_data is not None:
+    def prepend_previous_data(self):
+        current_starttime = self.metadata['starttime']
+        if self.previous_continuous_data is not None:
             # The start of the current trace should be within one sample after the end of the previous trace
             if ((current_starttime - self.previous_endtime) < self.metadata['dt'] and (current_starttime - self.previous_endtime) > 0):
-                self.cont_data = np.join([self.previous_data, cont_data])
+                self.cont_data = np.join([self.previous_continuous_data, self.cont_data])
                 self.metadata['starttime'] = self.previous_endtime
             else:
                 logging.warning('Cannot concatenate previous days data, data is not continuous')

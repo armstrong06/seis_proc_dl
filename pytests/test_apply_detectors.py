@@ -229,20 +229,22 @@ class TestDataLoader():
         previous_endtime = dl.metadata['endtime']
 
         # Check previous data is loaded
-        assert dl.previous_data.shape == (1000, 1)
-        assert dl.previous_endtime == endtime
+        assert dl.previous_continuous_data.shape == (1000, 1)
+        assert dl.previous_endtime == previous_endtime
 
         file2 = f'{examples_dir}/WY.YMR..HHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
         dl.load_1c_data(file2, min_signal_percent=0)
         
         # Check that the continuous data has been correctly updated
         assert dl.continuous_data.shape == (1100, 1)
-        assert dl.metadata.starttime == endtime
+        assert dl.metadata['starttime'] == previous_endtime
 
         # Check that the previous data has been correctly updated
         assert dl.previous_endtime == dl.metadata['endtime']
-        assert dl.previous_data == dl.continuous_data[-1000:, :]
+        assert dl.previous_continuous_data == dl.continuous_data[-1000:, :]
         
 
     if __name__ == '__main__':
-        test_load_data_1c_prepend_previous()
+        from pytests.test_apply_detectors import TestDataLoader
+        dltester = TestDataLoader()
+        dltester.test_load_data_1c_prepend_previous()
