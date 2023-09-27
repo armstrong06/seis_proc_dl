@@ -9,9 +9,6 @@ class DataLoader():
         self.metadata = None
         self.gaps = None
 
-        # TODO: needs consideration for missing or removed days
-        # TODO: update previous data to be an obspy stream instead of numpy data because merging 
-        # is tricky
         self.previous_continuous_data = None
         self.previous_endtime = None
         # TODO: this should be in seconds, if using before resampling
@@ -34,14 +31,18 @@ class DataLoader():
         if st_E is None:
             gaps_E[0][3] = gaps_E[0][3][0:2] + "?"
             self.gaps = gaps_E
+            # If skipping a day, then there is no previous day for the next trace
+            self.reset_previous_day()
             return
         elif st_N is None:
             gaps_N[0][3] = gaps_N[0][3][0:2] + "?"
             self.gaps = gaps_N
+            self.reset_previous_day()
             return
         elif st_Z is None:
             gaps_Z[0][3] = gaps_Z[0][3][0:2] + "?"
             self.gaps = gaps_Z
+            self.reset_previous_day()
             return
 
         starttimes = [st_E[0].stats.starttime, st_N[0].stats.starttime, st_Z[0].stats.starttime]
@@ -60,9 +61,6 @@ class DataLoader():
         cont_data[:, 0] = st_E[0].data
         cont_data[:, 1] = st_N[0].data
         cont_data[:, 2] = st_Z[0].data
-
-        if self.store_N_samples > 0: 
-            self.prepend_data()
 
         gaps = gaps_E + gaps_N + gaps_Z
 
@@ -83,6 +81,7 @@ class DataLoader():
                                               min_signal_percent=min_signal_percent)
         if st is None:
             self.gaps = gaps
+            self.reset_previous_day()
             return
         
         cont_data = np.zeros((st[0].stats.npts, 1))
@@ -95,24 +94,32 @@ class DataLoader():
         if self.store_N_samples > 0:
             # Update continous data and the metadata to include the end of the previous trace
             self.prepend_previous_data()
-            # Save the end of the current trace as the previous trace for nexttime
+            # Save the end of the current trace as the previous trace for next time
             self.previous_continuous_data = cont_data[-self.store_N_samples:, :]
             self.previous_endtime = st[0].stats.endtime
 
     def prepend_previous_data(self):
         current_starttime = self.metadata['starttime']
         if self.previous_continuous_data is not None:
-            # The start of the current trace should be within one sample after the end of the previous trace
-            if ((current_starttime - self.previous_endtime) < self.metadata['dt'] and (current_starttime - self.previous_endtime) > 0):
-                self.cont_data = np.join([self.previous_continuous_data, self.cont_data])
+            # The start of the current trace should be very close to the end of the previous trace
+            # Allow a little tolerance, but not sure if that is okay (half a sample)
+            # Obspy seems to ignore gaps of 0.0119 s (~1.2 samples)
+            if ((current_starttime - self.previous_endtime) < self.metadata['dt']*1.5 and 
+                (current_starttime - self.previous_endtime) > 0):
+                self.continuous_data = np.concatenate([self.previous_continuous_data, self.continuous_data])
                 self.metadata['starttime'] = self.previous_endtime
             else:
+                # TODO: Do something here, like "interpolate" if the traces are close enough
                 logging.warning('Cannot concatenate previous days data, data is not continuous')
 
     def reset_loader(self):
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
+
+    def reset_previous_day(self):
+        self.previous_continuous_data = None
+        self.previous_endtime = None
 
     def save_meta_data(self, stats, three_channels=True):
         meta_data = {}
@@ -185,11 +192,15 @@ class DataLoader():
         if start_gap is not None:
             gaps.insert(0, start_gap)
             # Fill the start of the trace with the first value, if needed
-            st = st.trim(starttime=desired_start, pad=True, fill_value=st[0].data[0])
+            st = st.trim(starttime=desired_start, pad=True, 
+                         fill_value=st[0].data[0], nearest_sample=False)
         if end_gap is not None:
             gaps += [end_gap]
             # Fill the end of the trace with the last value, if needed
-            st = st.trim(endtime=desired_end, pad=True, fill_value=st[0].data[-1])
+            # set nearest_sample to False or it will extent to the next day 
+            # and have 8460001 samples
+            st = st.trim(endtime=desired_end, pad=True, 
+                         fill_value=st[0].data[-1], nearest_sample=False)
 
         return st, gaps 
 

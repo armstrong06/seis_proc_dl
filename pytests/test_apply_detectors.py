@@ -7,6 +7,7 @@ from obspy.core.util.attribdict import AttribDict
 
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/example_files'
 
+# TODO: Run all tests with 40 Hz signal as well
 class TestDataLoader():
     def test_n_windows(self):
         dl = apply_detectors.DataLoader()
@@ -44,7 +45,7 @@ class TestDataLoader():
         # Check the endtime
         assert (UTC("2002-01-02") - st[0].stats.endtime) < 1
         # Check number of points is what is expected (+- 1 sample)
-        assert abs(st[0].stats.npts - 8640000) <= 1
+        assert st[0].stats.npts == 8640000
 
     def test_load_data_end_gaps_added(self):
         dl = apply_detectors.DataLoader()
@@ -236,15 +237,92 @@ class TestDataLoader():
         dl.load_1c_data(file2, min_signal_percent=0)
         
         # Check that the continuous data has been correctly updated
-        assert dl.continuous_data.shape == (1100, 1)
+        assert dl.continuous_data.shape == (8641000, 1)
         assert dl.metadata['starttime'] == previous_endtime
 
         # Check that the previous data has been correctly updated
         assert dl.previous_endtime == dl.metadata['endtime']
-        assert dl.previous_continuous_data == dl.continuous_data[-1000:, :]
+        assert np.array_equal(dl.previous_continuous_data, dl.continuous_data[-1000:, :])
+
+
+    def test_load_data_3c_prepend_previous(self):
+        fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'        # Load data succesfully
+        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        previous_endtime = dl.metadata['endtime']
+
+        # Check previous data is loaded
+        assert dl.previous_continuous_data.shape == (1000, 3)
+        assert dl.previous_endtime == previous_endtime
+
+        fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
+        fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
+        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
         
+        # Check that the continuous data has been correctly updated
+        assert dl.continuous_data.shape == (8641000, 3)
+        assert dl.metadata['starttime'] == previous_endtime
+
+        # Check that the previous data has been correctly updated
+        assert dl.previous_endtime == dl.metadata['endtime']
+        assert np.array_equal(dl.previous_continuous_data, dl.continuous_data[-1000:, :])
+
+    def test_load_data_1c_prepend_previous_trimmed(self):
+        file1 = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        # Load data succesfully
+        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl.load_1c_data(file1, min_signal_percent=0)
+        previous_endtime = dl.metadata['endtime']
+
+        # Check previous data is loaded
+        assert dl.previous_continuous_data.shape == (1000, 1)
+        assert dl.previous_endtime == previous_endtime
+
+        file2 = f'{examples_dir}/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
+        dl.load_1c_data(file2, min_signal_percent=0)
+        
+        # Check that the continuous data has been correctly updated
+        assert dl.continuous_data.shape == (8641000, 1)
+        assert dl.metadata['starttime'] == previous_endtime
+
+        # Check that the previous data has been correctly updated
+        assert dl.previous_endtime == dl.metadata['endtime']
+        assert np.array_equal(dl.previous_continuous_data, dl.continuous_data[-1000:, :])
+  
+    def test_load_3c_data_reset_previous_day(self):
+        fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        # Load data succesfully
+        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        # Try to load data but skip the day because not enough signal
+        assert dl.previous_continuous_data is not None
+        assert dl.previous_endtime is not None
+
+        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
+        # Continous_data and metadata should now be None, but gaps contains the entire day as a gap
+        assert dl.previous_continuous_data == None
+        assert dl.previous_endtime == None
+
+    def test_load_1c_data_reset_previous_day(self):
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        # Load data succesfully
+        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl.load_1c_data(fileZ, min_signal_percent=0)
+        assert dl.previous_continuous_data is not None
+        assert dl.previous_endtime is not None
+
+        # Try to load data but skip the day because not enough signal
+        dl.load_1c_data(fileZ, min_signal_percent=99.5)
+        # Continous_data and metadata should now be None, but gaps contains the entire day as a gap
+        assert dl.previous_continuous_data == None
+        assert dl.previous_endtime == None
 
     if __name__ == '__main__':
         from pytests.test_apply_detectors import TestDataLoader
         dltester = TestDataLoader()
-        dltester.test_load_data_1c_prepend_previous()
+        dltester.test_load_data_1c_prepend_previous_trimmed()
