@@ -2,17 +2,63 @@ import obspy
 from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
 import logging
+# TODO: Better way to import pyuussmlmodels than adding path?
+import sys
+sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
+import pyuussmlmodels
+
+class PhaseDetector():
+    def __init__(self, window_length, sliding_interval) -> None:
+        self.sliding_interval = sliding_interval
+        self.window_length = window_length
+
+    def format_continuous(self, continuous_data, pad_start=False):
+        # compute the indices for splitting the continuous data into model inputs
+        npts = continuous_data.shape[0]
+        # number points between the end of the center and the end of the window
+        edge_npts = (self.window_length-self.sliding_interval)//2
+
+        # Assume that if the previous day is included that the very start of the trace will be in the 
+        # central window at some point. If not, I think adding one sliding interval at the start will capture it
+        start_pad = 0
+        if pad_start:
+            start_pad = self.sliding_interval
+
+        # Compute the padding at the end of the waveform to be evenly divisible by the sliding window
+        end_pad = self.sliding_interval - (npts - self.window_length)%self.sliding_interval
+        # If the padding is less than edge_npts, then the last edge of the trace will not be included. This 
+        # should be fine when the end is included in the next day but there may not always be a next day.
+        if end_pad < edge_npts:
+            end_pad += self.window_length//2
+
+        npts_padded = npts + start_pad + end_pad
+        n_windows = self.get_n_windows(npts_padded, self.window_length, self.sliding_interval)
+        window_start_indices = np.arange(0, npts_padded-2*self.sliding_interval, self.sliding_interval)
+
+
+        # Extend those windows slightly, when possible to avoid edge effects
+
+        # Process the extend windows
+
+        # Trim the windows back down to the desired size
+
+        # Return array of examples
+        pass
+
+    def get_n_windows(self, npts):
+        return (npts-self.window_length)//self.sliding_interval + 1
 
 class DataLoader():
-    def __init__(self, store_N_samples=0) -> None:
+    def __init__(self, store_N_seconds=0) -> None:
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
+        self.continuous_data_includes_previous = False
 
         self.previous_continuous_data = None
         self.previous_endtime = None
         # TODO: this should be in seconds, if using before resampling
-        self.store_N_samples = store_N_samples
+        self.store_N_seconds = store_N_seconds
 
     def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1):
 
@@ -68,9 +114,10 @@ class DataLoader():
         self.gaps = gaps
         self.save_meta_data(st_E[0].stats)
         
-        if self.store_N_samples > 0:
+        if self.store_N_seconds > 0:
             self.prepend_previous_data()
-            self.previous_continuous_data = cont_data[-self.store_N_samples:, :]
+            store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
+            self.previous_continuous_data = cont_data[-store_N_samples:, :]
             self.previous_endtime = endtimes[0]
 
     def load_1c_data(self, file, min_signal_percent=1):
@@ -91,11 +138,12 @@ class DataLoader():
         self.gaps = gaps
         self.save_meta_data(st[0].stats)
 
-        if self.store_N_samples > 0:
+        if self.store_N_seconds > 0:
             # Update continous data and the metadata to include the end of the previous trace
             self.prepend_previous_data()
             # Save the end of the current trace as the previous trace for next time
-            self.previous_continuous_data = cont_data[-self.store_N_samples:, :]
+            store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
+            self.previous_continuous_data = cont_data[-store_N_samples:, :]
             self.previous_endtime = st[0].stats.endtime
 
     def prepend_previous_data(self):
@@ -107,7 +155,9 @@ class DataLoader():
             if ((current_starttime - self.previous_endtime) < self.metadata['dt']*1.5 and 
                 (current_starttime - self.previous_endtime) > 0):
                 self.continuous_data = np.concatenate([self.previous_continuous_data, self.continuous_data])
+                # TODO: should make this another field in the metadata
                 self.metadata['starttime'] = self.previous_endtime
+                self.continuous_data_includes_previous = True
             else:
                 # TODO: Do something here, like "interpolate" if the traces are close enough
                 logging.warning('Cannot concatenate previous days data, data is not continuous')
@@ -116,6 +166,7 @@ class DataLoader():
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
+        self.continuous_data_includes_previous = False
 
     def reset_previous_day(self):
         self.previous_continuous_data = None
@@ -204,6 +255,50 @@ class DataLoader():
 
         return st, gaps 
 
+    def preprocess_3c_p(self, n_chunks=24):
+        assert self.continuous_data.shape[1] == 3, "Not 3C data"
+        preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
+        return self._preprocess_continuous(preprocessor, n_chunks)
+
+    def preprocess_3c_s(self, n_chunks=24):
+        assert self.continuous_data.shape[1] == 3, "Not 3C data"
+        preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
+        return self._preprocess_continuous(preprocessor, n_chunks)
+
+    def preprocess_1c_p(self, n_chunks=24):
+        assert self.continuous_data.shape[1] == 1, "Not 1C data"
+        preprocessor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
+        return self._preprocess_continuous(preprocessor, n_chunks)
+    
+    def _preprocess_continuous(self, preprocessor, n_chunks):
+        npts = self.continuous_data.shape[0]
+        n_comps = self.continuous_data.shape[1]
+        chunk_npts = npts//n_chunks
+        # TODO: This won't work if resampling
+        processed_continuous = np.zeros_like(self.continuous_data)
+        i0 = 0
+        for i in range(n_chunks):
+            i1 = np.min([i0+chunk_npts, npts])
+            if self.store_N_seconds > 0 and self.continuous_data_includes_previous:
+                i1 += int(self.metadata['sampling_rate']*self.store_N_seconds)
+
+            if n_comps == 3:
+                E = np.copy(self.continuous_data[i0:i1, 0])
+                N = np.copy(self.continuous_data[i0:i1, 1])
+                Z = np.copy(self.continuous_data[i0:i1, 2])
+                Z_proc, N_proc, E_proc, = preprocessor.process(Z, N, E, sampling_rate=100)
+                processed_continuous[i0:i1, 0] = E_proc
+                processed_continuous[i0:i1, 1] = N_proc
+                processed_continuous[i0:i1, 2] = Z_proc
+            else:
+                Z = np.copy(self.continuous_data[i0:i1, 0])
+                Z_proc = preprocessor.process(Z, sampling_rate=100)
+                processed_continuous[i0:i1, :] = Z_proc[:, None]
+
+            i0 += chunk_npts
+
+        return processed_continuous
+
     @staticmethod
     def format_edge_gaps(st, desired_start, desired_end, entire_file=False):
         """Checks for gaps greater than 1 second at the start and end of an Obspy Stream.
@@ -242,7 +337,21 @@ class DataLoader():
                         endtime, desired_end, end_delta, int(end_delta*sampling_rate)]
 
         return start_gap, end_gap
+    
+    # def preprocess_1c_P(self, n_chunks=24):
+    #     preprocessor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
+    #     npts = self.continuous_data.shape[0]
+    #     chunk_npts = npts//n_chunks
+    #     processed_continuous = np.zeros_like(self.continuous_data)
+    #     i0 = 0
+    #     for i in range(n_chunks):
+    #         i1 = np.min([i0+chunk_npts, npts])
+    #         if self.store_N_seconds > 0 and self.continuous_data_includes_previous:
+    #             i1 += int(self.metadata['sampling_rate']*self.store_N_seconds)
 
-    @staticmethod
-    def get_n_windows(npts, window_length, sliding_interval):
-        return (npts-window_length)//sliding_interval + 1
+    #         Z = np.copy(self.continuous_data[i0:i1, 0])
+    #         Z_proc, = preprocessor.process(Z, sampling_rate=100)
+    #         processed_continuous[i0:i1, :] = Z_proc
+        
+    #     return processed_continuous
+    

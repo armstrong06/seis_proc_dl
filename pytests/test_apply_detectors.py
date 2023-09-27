@@ -7,16 +7,7 @@ from obspy.core.util.attribdict import AttribDict
 
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/pytests/example_files'
 
-# TODO: Run all tests with 40 Hz signal as well
 class TestDataLoader():
-    def test_n_windows(self):
-        dl = apply_detectors.DataLoader()
-        npts = 1000
-        window_length = 200
-        sliding_interval = 100
-        # A time-series of length 1000, with a window length of 200 and a sliding interval of 100 
-        # should produce 9 windows
-        assert dl.get_n_windows(npts, window_length, sliding_interval) == 9
 
     def test_load_data_different_sampling_rate_issue(self):
         dl = apply_detectors.DataLoader()
@@ -225,7 +216,7 @@ class TestDataLoader():
     def test_load_data_1c_prepend_previous(self):
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
-        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_1c_data(file1, min_signal_percent=0)
         previous_endtime = dl.metadata['endtime']
 
@@ -249,7 +240,7 @@ class TestDataLoader():
         fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'        # Load data succesfully
-        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
         previous_endtime = dl.metadata['endtime']
 
@@ -273,7 +264,7 @@ class TestDataLoader():
     def test_load_data_1c_prepend_previous_trimmed(self):
         file1 = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
-        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_1c_data(file1, min_signal_percent=0)
         previous_endtime = dl.metadata['endtime']
 
@@ -297,7 +288,7 @@ class TestDataLoader():
         fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
-        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
         # Try to load data but skip the day because not enough signal
         assert dl.previous_continuous_data is not None
@@ -311,7 +302,7 @@ class TestDataLoader():
     def test_load_1c_data_reset_previous_day(self):
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
-        dl = apply_detectors.DataLoader(store_N_samples=1000)
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_1c_data(fileZ, min_signal_percent=0)
         assert dl.previous_continuous_data is not None
         assert dl.previous_endtime is not None
@@ -322,7 +313,26 @@ class TestDataLoader():
         assert dl.previous_continuous_data == None
         assert dl.previous_endtime == None
 
+    def test_process_3c_p_runs(self):
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        # Load data succesfully
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
+        dl.load_1c_data(fileZ, min_signal_percent=0)
+        processed_data = dl.preprocess_1c_p()
+        assert processed_data.shape == (8640000, 3)
+
+class TestPhaseDetector():
+    def test_n_windows(self):
+        npts = 1000
+        window_length = 200
+        sliding_interval = 100
+        pd = apply_detectors.PhaseDetector(window_length, sliding_interval)
+        # A time-series of length 1000, with a window length of 200 and a sliding interval of 100 
+        # should produce 9 windows
+        assert pd.get_n_windows(npts) == 9
+
+
     if __name__ == '__main__':
         from pytests.test_apply_detectors import TestDataLoader
         dltester = TestDataLoader()
-        dltester.test_load_data_1c_prepend_previous_trimmed()
+        dltester.test_process_3c_p_runs()
