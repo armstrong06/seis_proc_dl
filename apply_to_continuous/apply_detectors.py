@@ -156,6 +156,7 @@ class DataLoader():
                 (current_starttime - self.previous_endtime) > 0):
                 self.continuous_data = np.concatenate([self.previous_continuous_data, self.continuous_data])
                 # TODO: should make this another field in the metadata
+                # TODO: should update npts as well
                 self.metadata['starttime'] = self.previous_endtime
                 self.continuous_data_includes_previous = True
             else:
@@ -255,50 +256,95 @@ class DataLoader():
 
         return st, gaps 
 
-    def preprocess_3c_p(self, n_chunks=24):
-        assert self.continuous_data.shape[1] == 3, "Not 3C data"
-        preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
-        return self._preprocess_continuous(preprocessor, n_chunks)
+    def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None):
+        # compute the indices for splitting the continuous data into model inputs
+        npts, n_comps = self.continuous_data.shape
+        pad_start = (self.store_N_seconds and self.previous_continuous_data is None)
+        total_npts, start_pad_npts, end_pad_npts = self.get_padding(unet_window_length, unet_sliding_interval, pad_start)
+        n_windows = self.get_n_windows(total_npts, unet_window_length, unet_sliding_interval)
+        window_start_indices = self.get_sliding_window_start_inds(total_npts, unet_sliding_interval)
 
-    def preprocess_3c_s(self, n_chunks=24):
-        assert self.continuous_data.shape[1] == 3, "Not 3C data"
-        preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
-        return self._preprocess_continuous(preprocessor, n_chunks)
+        # Extend those windows slightly, when possible to avoid edge effects
+        # TODO: Add this in later if needed. It shouldn't be that important because of the relatively small 
+        # window + taper size and the sliding windows
 
-    def preprocess_1c_p(self, n_chunks=24):
-        assert self.continuous_data.shape[1] == 1, "Not 1C data"
-        preprocessor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
-        return self._preprocess_continuous(preprocessor, n_chunks)
+        # TODO: add in the padding!!
+
+        # Process the extended windows
+        formatted = np.zeros((n_windows, unet_window_length, n_comps))
+        for w_ind in range(n_windows):
+            i0= window_start_indices[w_ind]
+            i1 = i0 + unet_window_length
+            ex = np.copy(self.continuous_data[i0:i1, :])
+            if processing_function is not None:
+                ex = processing_function(ex)
+            formatted[w_ind, :, :] = ex
+
+        # Trim the windows back down to the desired size (later)
+
+        return formatted, start_pad_npts, end_pad_npts
+
+    @staticmethod
+    def process_1c_P(wf, desired_sampling_rate=100):
+        processor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
+        processed = processor.process(wf, sampling_rate=desired_sampling_rate)
+        return processed
+
+    def process_3c_P(self, wfs, desired_sampling_rate=100):
+        processor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
+        return self._process_3c(wfs, processor, desired_sampling_rate)
+   
+    def process_3c_S(self, wfs, desired_sampling_rate=100):
+        processor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
+        return self._process_3c(wfs, processor, desired_sampling_rate)
     
-    def _preprocess_continuous(self, preprocessor, n_chunks):
-        npts = self.continuous_data.shape[0]
-        n_comps = self.continuous_data.shape[1]
-        chunk_npts = npts//n_chunks
-        # TODO: This won't work if resampling
-        processed_continuous = np.zeros_like(self.continuous_data)
-        i0 = 0
-        for i in range(n_chunks):
-            i1 = np.min([i0+chunk_npts, npts])
-            if self.store_N_seconds > 0 and self.continuous_data_includes_previous:
-                i1 += int(self.metadata['sampling_rate']*self.store_N_seconds)
+    @staticmethod
+    def _process_3c(wfs, processor, desired_sampling_rate=100):
+        east = wfs[:, 0]
+        north = wfs[:, 1]
+        vert = wfs[:, 2]
+        proc_z, proc_n, proc_e = processor.process(vert, north, east, sampling_rate=desired_sampling_rate)
+        processed = np.zeros_like(wfs)
+        processed[:, 0] = proc_e
+        processed[:, 1] = proc_n
+        processed[:, 2] = proc_z
 
-            if n_comps == 3:
-                E = np.copy(self.continuous_data[i0:i1, 0])
-                N = np.copy(self.continuous_data[i0:i1, 1])
-                Z = np.copy(self.continuous_data[i0:i1, 2])
-                Z_proc, N_proc, E_proc, = preprocessor.process(Z, N, E, sampling_rate=100)
-                processed_continuous[i0:i1, 0] = E_proc
-                processed_continuous[i0:i1, 1] = N_proc
-                processed_continuous[i0:i1, 2] = Z_proc
-            else:
-                Z = np.copy(self.continuous_data[i0:i1, 0])
-                Z_proc = preprocessor.process(Z, sampling_rate=100)
-                processed_continuous[i0:i1, :] = Z_proc[:, None]
+        return processed
 
-            i0 += chunk_npts
+    @staticmethod
+    def get_padding(npts, unet_window_length, unet_sliding_interval, pad_start=True):
+        # TODO: This edge_npts calc is not always right (works for my case though)
+        # number points between the end of the center and the end of the window
+        edge_npts = (unet_window_length-unet_sliding_interval)//2
 
-        return processed_continuous
+        # Assume that if the previous day is included that the very start of the trace will be in the 
+        # central window at some point. If not, I think adding edge_npts at the start will capture it
+        start_pad_npts = 0
+        if pad_start:
+            start_pad_npts = edge_npts
 
+        npts_padded = npts+start_pad_npts
+
+        # Compute the padding at the end of the waveform to be evenly divisible by the sliding window
+        end_pad_npts = unet_sliding_interval - (npts_padded - unet_window_length)%unet_sliding_interval
+        # If the padding is less than edge_npts, then the last edge of the trace will not be included. This 
+        # should be fine when the end is included in the next day but there may not always be a next day.
+        if end_pad_npts < edge_npts:
+            end_pad_npts += unet_sliding_interval
+
+        npts_padded += end_pad_npts
+
+        return npts_padded, start_pad_npts, end_pad_npts
+
+    @staticmethod
+    def get_sliding_window_start_inds(npts_padded, unet_window_length, unet_sliding_interval):
+        return np.arange(0, npts_padded-unet_window_length+unet_sliding_interval, 
+                         unet_sliding_interval)
+
+    @staticmethod
+    def get_n_windows(npts, window_length, sliding_interval):
+        return (npts-window_length)//sliding_interval + 1
+    
     @staticmethod
     def format_edge_gaps(st, desired_start, desired_end, entire_file=False):
         """Checks for gaps greater than 1 second at the start and end of an Obspy Stream.
@@ -338,10 +384,26 @@ class DataLoader():
 
         return start_gap, end_gap
     
-    # def preprocess_1c_P(self, n_chunks=24):
+ # def preprocess_3c_p(self, n_chunks=24):
+    #     assert self.continuous_data.shape[1] == 3, "Not 3C data"
+    #     preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
+    #     return self._preprocess_continuous(preprocessor, n_chunks)
+
+    # def preprocess_3c_s(self, n_chunks=24):
+    #     assert self.continuous_data.shape[1] == 3, "Not 3C data"
+    #     preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
+    #     return self._preprocess_continuous(preprocessor, n_chunks)
+
+    # def preprocess_1c_p(self, n_chunks=24):
+    #     assert self.continuous_data.shape[1] == 1, "Not 1C data"
     #     preprocessor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
+    #     return self._preprocess_continuous(preprocessor, n_chunks)
+    
+    # def _preprocess_continuous(self, preprocessor, n_chunks):
     #     npts = self.continuous_data.shape[0]
+    #     n_comps = self.continuous_data.shape[1]
     #     chunk_npts = npts//n_chunks
+    #     # TODO: This won't work if resampling
     #     processed_continuous = np.zeros_like(self.continuous_data)
     #     i0 = 0
     #     for i in range(n_chunks):
@@ -349,9 +411,23 @@ class DataLoader():
     #         if self.store_N_seconds > 0 and self.continuous_data_includes_previous:
     #             i1 += int(self.metadata['sampling_rate']*self.store_N_seconds)
 
-    #         Z = np.copy(self.continuous_data[i0:i1, 0])
-    #         Z_proc, = preprocessor.process(Z, sampling_rate=100)
-    #         processed_continuous[i0:i1, :] = Z_proc
-        
+    #         if n_comps == 3:
+    #             E = np.copy(self.continuous_data[i0:i1, 0])
+    #             N = np.copy(self.continuous_data[i0:i1, 1])
+    #             Z = np.copy(self.continuous_data[i0:i1, 2])
+    #             Z_proc, N_proc, E_proc, = preprocessor.process(Z, N, E, sampling_rate=100)
+    #             processed_continuous[i0:i1, 0] = E_proc
+    #             processed_continuous[i0:i1, 1] = N_proc
+    #             processed_continuous[i0:i1, 2] = Z_proc
+    #         else:
+    #             Z = np.copy(self.continuous_data[i0:i1, 0])
+    #             Z_proc = preprocessor.process(Z, sampling_rate=100)
+    #             processed_continuous[i0:i1, :] = Z_proc[:, None]
+
+    #         i0 += chunk_npts
+
     #     return processed_continuous
-    
+
+# class DataFormatter():
+#     def __init__(self) -> None:
+#         pass

@@ -313,26 +313,108 @@ class TestDataLoader():
         assert dl.previous_continuous_data == None
         assert dl.previous_endtime == None
 
-    def test_process_3c_p_runs(self):
-        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        # Load data succesfully
-        dl = apply_detectors.DataLoader(store_N_seconds=10)
-        dl.load_1c_data(fileZ, min_signal_percent=0)
-        processed_data = dl.preprocess_1c_p()
-        assert processed_data.shape == (8640000, 3)
-
-class TestPhaseDetector():
     def test_n_windows(self):
         npts = 1000
         window_length = 200
         sliding_interval = 100
-        pd = apply_detectors.PhaseDetector(window_length, sliding_interval)
+        dl = apply_detectors.DataLoader()
         # A time-series of length 1000, with a window length of 200 and a sliding interval of 100 
         # should produce 9 windows
-        assert pd.get_n_windows(npts) == 9
+        assert dl.get_n_windows(npts, window_length, sliding_interval) == 9
+
+    def test_start_indices(self):
+        npts = 1000
+        window_length = 200
+        sliding_interval = 100
+        dl = apply_detectors.DataLoader()
+        # A time-series of length 1000, with a window length of 200 and a sliding interval of 100 
+        # should produce 9 windows - starting every 100 samples from 0 to 800
+        start_inds = dl.get_sliding_window_start_inds(npts, window_length, sliding_interval)
+        assert np.array_equal(start_inds, np.arange(0, 900, 100))
+        assert start_inds[-1]+window_length == npts
+
+    def test_start_indices_one_window(self):
+        npts = 1008
+        window_length = 1008
+        sliding_interval = 500
+        dl = apply_detectors.DataLoader()
+        start_inds = dl.get_sliding_window_start_inds(npts, window_length, sliding_interval)
+        assert np.array_equal(start_inds, np.arange(0, 1))
+        assert start_inds[-1]+window_length == npts
+
+    def test_get_padding_need_partial_window(self):
+        npts = 1008
+        window_length = 200
+        sliding_interval = 100
+        dl = apply_detectors.DataLoader()
+        # Don't add anything to the start, will be 8 samples hanging over at the end. 
+        # To include the 8 samples, will need to add 1/2 of the window length - 8
+        total_npts, start_npts, end_npts = dl.get_padding(npts, window_length, 
+                                                          sliding_interval, pad_start=False)
+        
+        assert start_npts == 0
+        assert end_npts == 92
+        assert total_npts == 1100
+
+    def test_get_padding_include_last_edge(self):
+        npts = 300
+        window_length = 100
+        sliding_interval = 100
+        dl = apply_detectors.DataLoader()
+        # Don't add anything to the start, will be 8 samples hanging over at the end. 
+        # To include the 8 samples, will need to add 1/2 of the window length - 8
+        total_npts, start_npts, end_npts = dl.get_padding(npts, window_length, 
+                                                          sliding_interval, pad_start=False)
+        
+        assert start_npts == 0
+        assert end_npts == 100
+        assert total_npts == 400
+
+    def test_get_padding_include_last_edge2(self):
+        npts = 1008
+        window_length = 1008
+        sliding_interval = 500
+        dl = apply_detectors.DataLoader()
+        # Don't add anything to the start, will be 8 samples hanging over at the end. 
+        # To include the 8 samples, will need to add 1/2 of the window length - 8
+        total_npts, start_npts, end_npts = dl.get_padding(npts, window_length, 
+                                                          sliding_interval, pad_start=False)
+        
+        assert start_npts == 0
+        assert end_npts == 500
+        assert total_npts == 1508
+
+    def test_get_padding_double_pad(self):
+        """Have to pad to be evenly divisible by sliding window/window_length and
+          have to pad to include the last trace edge"""
+        npts = 1000
+        window_length = 1008
+        sliding_interval = 500
+        dl = apply_detectors.DataLoader()
+        total_npts, start_npts, end_npts = dl.get_padding(npts, window_length, 
+                                                          sliding_interval, pad_start=False)
+        
+        assert start_npts == 0
+        assert end_npts == 508
+        assert total_npts == 1508
+
+    def test_get_pad_start(self):
+        npts = 1008
+        window_length = 1008
+        sliding_interval = 500
+        dl = apply_detectors.DataLoader()
+        total_npts, start_npts, end_npts = dl.get_padding(npts, window_length, 
+                                                          sliding_interval, pad_start=True)
+        
+        assert start_npts == 254
+        assert end_npts == 746 #(1008 - (254+8)) => 8 is the number of left over samples at the end after adding the extra edge (254)
+        assert total_npts == 2008 # works out to adding 2 extra sliding windows
+
+class TestPhaseDetector():
+    pass
 
 
-    if __name__ == '__main__':
-        from pytests.test_apply_detectors import TestDataLoader
-        dltester = TestDataLoader()
-        dltester.test_process_3c_p_runs()
+if __name__ == '__main__':
+    from pytests.test_apply_detectors import TestDataLoader
+    dltester = TestDataLoader()
+    dltester.test_get_pad_start()
