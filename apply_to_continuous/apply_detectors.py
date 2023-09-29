@@ -259,36 +259,46 @@ class DataLoader():
     def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None):
         # compute the indices for splitting the continuous data into model inputs
         npts, n_comps = self.continuous_data.shape
-        pad_start = (self.store_N_seconds and self.previous_continuous_data is None)
-        total_npts, start_pad_npts, end_pad_npts = self.get_padding(unet_window_length, unet_sliding_interval, pad_start)
+        pad_start = (self.store_N_seconds == 0 and self.previous_continuous_data is None)
+        total_npts, start_pad_npts, end_pad_npts = self.get_padding(npts, unet_window_length, unet_sliding_interval, pad_start)
         n_windows = self.get_n_windows(total_npts, unet_window_length, unet_sliding_interval)
-        window_start_indices = self.get_sliding_window_start_inds(total_npts, unet_sliding_interval)
+        window_start_indices = self.get_sliding_window_start_inds(total_npts, unet_window_length, unet_sliding_interval)
 
         # Extend those windows slightly, when possible to avoid edge effects
         # TODO: Add this in later if needed. It shouldn't be that important because of the relatively small 
         # window + taper size and the sliding windows
 
-        # TODO: add in the padding!!
+        data = self.add_padding(np.copy(self.continuous_data), start_pad_npts, end_pad_npts)
 
         # Process the extended windows
         formatted = np.zeros((n_windows, unet_window_length, n_comps))
         for w_ind in range(n_windows):
             i0= window_start_indices[w_ind]
             i1 = i0 + unet_window_length
-            ex = np.copy(self.continuous_data[i0:i1, :])
+            ex = np.copy(data[i0:i1, :])
             if processing_function is not None:
                 ex = processing_function(ex)
             formatted[w_ind, :, :] = ex
 
-        # Trim the windows back down to the desired size (later)
-
         return formatted, start_pad_npts, end_pad_npts
+
+    @staticmethod
+    def add_padding(data, start_pad_npts, end_pad_npts):
+        n_comps = data.shape[1]
+        if start_pad_npts > 0:
+            start_padding = np.full((start_pad_npts, n_comps), data[0, :])
+            data = np.concatenate([start_padding, data])
+        if end_pad_npts > 0:
+            end_padding = np.full((end_pad_npts, n_comps), data[-1, :])
+            data = np.concatenate([data, end_padding])
+
+        return data
 
     @staticmethod
     def process_1c_P(wf, desired_sampling_rate=100):
         processor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
-        processed = processor.process(wf, sampling_rate=desired_sampling_rate)
-        return processed
+        processed = processor.process(wf[:, 0], sampling_rate=desired_sampling_rate)
+        return processed[:, None]
 
     def process_3c_P(self, wfs, desired_sampling_rate=100):
         processor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()

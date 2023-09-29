@@ -410,6 +410,229 @@ class TestDataLoader():
         assert end_npts == 746 #(1008 - (254+8)) => 8 is the number of left over samples at the end after adding the extra edge (254)
         assert total_npts == 2008 # works out to adding 2 extra sliding windows
 
+    # The following tests building on each other/are all components of the last function test
+    def test_get_padding(self):
+        npts = 2000
+        window = 1008
+        slide = 500
+        dl = apply_detectors.DataLoader()
+        npts_padded, start_pad, end_pad = dl.get_padding(npts, window, slide)
+        assert npts_padded == 2508
+        assert start_pad == 254
+        assert end_pad == 254
+
+    def test_get_n_windows(self):
+        npts = 2508
+        window = 1008
+        slide = 500
+        dl = apply_detectors.DataLoader()
+        assert dl.get_n_windows(npts, window, slide) == 4
+
+    def test_get_sliding_window_start_inds(self):
+        npts = 2508
+        window = 1008
+        slide = 500
+        dl = apply_detectors.DataLoader()
+        assert np.array_equal(dl.get_sliding_window_start_inds(npts, window, slide), np.arange(0, 2000, 500))
+
+    def test_add_padding_3C(self):
+        continuous_data = np.arange(6000).reshape((2000, 3))
+        start_pad = 254
+        end_pad = 254
+        dl = apply_detectors.DataLoader()
+        padded = dl.add_padding(continuous_data, start_pad, end_pad)
+        assert np.array_equal(np.unique(padded[0:start_pad, :]), [0, 1, 2])
+        assert np.array_equal(np.unique(padded[-end_pad:, :]), [5997, 5998, 5999])
+
+    def test_add_padding_1C(self):
+        continuous_data = np.expand_dims(np.arange(2000), 1)
+        start_pad = 254
+        end_pad = 254
+        dl = apply_detectors.DataLoader()
+        padded = dl.add_padding(continuous_data, start_pad, end_pad)
+        assert np.array_equal(np.unique(padded[0:start_pad, :]), [0])
+        assert np.array_equal(np.unique(padded[-end_pad:, :]), [1999])
+
+    def test_format_continuous_for_unet_no_proc_3c(self):
+        dl = apply_detectors.DataLoader()
+        #proc_func = dl.process_3c_P
+        dl.continuous_data = np.arange(6000).reshape((3, 2000)).T
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide)
+        assert start_pad_npts == 254
+        assert end_pad_npts == 254
+        
+        assert formatted.shape == (4, 1008, 3)
+        assert np.array_equal(np.unique(formatted[0, :start_pad_npts, :]), [0, 2000, 4000])
+        assert np.array_equal(np.unique(formatted[-1, -end_pad_npts:, :]), [1999, 3999, 5999])
+        
+        # Check first trace values
+        assert np.array_equal(formatted[0, start_pad_npts:, 0], np.arange(0, 754))
+        assert np.array_equal(formatted[0, start_pad_npts:, 1], np.arange(2000, 2754))
+        assert np.array_equal(formatted[0, start_pad_npts:, 2], np.arange(4000, 4754))
+
+        # Check second trace values
+        assert np.array_equal(formatted[1, :, 0], np.arange(246, 1254))
+        assert np.array_equal(formatted[1, :, 1], np.arange(2246, 3254))
+        assert np.array_equal(formatted[1, :, 2], np.arange(4246, 5254))
+
+        # Check third trace values
+        assert np.array_equal(formatted[2, :, 0], np.arange(746, 1754))
+        assert np.array_equal(formatted[2, :, 1], np.arange(2746, 3754))
+        assert np.array_equal(formatted[2, :, 2], np.arange(4746, 5754))
+
+        # Check fourth trace values
+        assert np.array_equal(formatted[3, :-end_pad_npts, 0], np.arange(1246, 2000))
+        assert np.array_equal(formatted[3, :-end_pad_npts, 1], np.arange(3246, 4000))
+        assert np.array_equal(formatted[3, :-end_pad_npts, 2], np.arange(5246, 6000))
+
+    def test_format_continuous_for_unet_no_proc_1c(self):
+        dl = apply_detectors.DataLoader()
+        #proc_func = dl.process_3c_P
+        dl.continuous_data = np.expand_dims(np.arange(2000), 1)
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide)
+        assert start_pad_npts == 254
+        assert end_pad_npts == 254
+        
+        assert formatted.shape == (4, 1008, 1)
+        assert np.array_equal(np.unique(formatted[0, :start_pad_npts, :]), [00])
+        assert np.array_equal(np.unique(formatted[-1, -end_pad_npts:, :]), [1999])
+        
+        # Check first trace values
+        assert np.array_equal(formatted[0, start_pad_npts:, 0], np.arange(0, 754))
+
+        # Check second trace values
+        assert np.array_equal(formatted[1, :, 0], np.arange(246, 1254))
+
+        # Check third trace values
+        assert np.array_equal(formatted[2, :, 0], np.arange(746, 1754))
+
+        # Check fourth trace values
+        assert np.array_equal(formatted[3, :-end_pad_npts, 0], np.arange(1246, 2000))
+
+    def test_format_continuous_for_unet_proc_3c_P(self):
+        dl = apply_detectors.DataLoader()
+        proc_func = dl.process_3c_P
+        dl.continuous_data = np.arange(6000).reshape((3, 2000)).T
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
+                                                                                 processing_function=proc_func)
+
+        assert formatted.shape == (4, 1008, 3)
+
+    def test_format_continuous_for_unet_proc_3c_S(self):
+        dl = apply_detectors.DataLoader()
+        proc_func = dl.process_3c_S
+        dl.continuous_data = np.arange(6000).reshape((3, 2000)).T
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
+                                                                                 processing_function=proc_func)
+        assert formatted.shape == (4, 1008, 3)
+
+    def test_format_continuous_for_unet_proc_1c_P(self):
+        dl = apply_detectors.DataLoader()
+        proc_func = dl.process_1c_P
+        dl.continuous_data = np.expand_dims(np.arange(2000), 1)
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
+                                                                                 processing_function=proc_func)
+        assert formatted.shape == (4, 1008, 1)
+
+    def test_process_1c_P(self):
+        vert_mat = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetOneComponentP/PB.B206.EHZ.zrunet_p.txt', delimiter=',')
+        vertical_ref = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetOneComponentP/PB.B206.EHZ.PROC.zrunet_p.txt', delimiter=',')[:, 1]
+        vertical = vert_mat[:, 1]
+        t = vert_mat[:, 0]
+
+        assert len(vertical) == 360000
+        assert len(vertical) == len(vertical_ref)
+
+        sampling_rate = round(1./(t[1] - t[0]))
+        assert sampling_rate == 100, 'sampling rate should be 100 Hz'
+
+        dl = apply_detectors.DataLoader()
+        vertical_proc = dl.process_1c_P(vertical[:, None], desired_sampling_rate=sampling_rate)
+
+        assert max(abs(vertical_proc[:, 0] - vertical_ref)) < 1.e-1
+
+    def test_process_3c_P(self):
+        vert_mat = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentP/PB.B206.EHZ.zrunet_p.txt', delimiter=',')
+        north = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentP/PB.B206.EH1.zrunet_p.txt', delimiter=',')[:, 1]
+        east  = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentP/PB.B206.EH2.zrunet_p.txt', delimiter=',')[:, 1]
+        vertical_ref = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentP/PB.B206.EHZ.PROC.zrunet_p.txt', delimiter=',')[:, 1]
+        north_ref = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentP/PB.B206.EH1.PROC.zrunet_p.txt', delimiter=',')[:, 1]
+        east_ref = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentP/PB.B206.EH2.PROC.zrunet_p.txt', delimiter=',')[:, 1]
+        vertical = vert_mat[:, 1]
+        t = vert_mat[:, 0]
+
+        assert len(vertical) == 360000
+        assert len(vertical) == len(north)
+        assert len(vertical) == len(east)
+        assert len(vertical) == len(vertical_ref)
+        assert len(vertical) == len(north_ref)
+        assert len(vertical) == len(east_ref)
+
+        sampling_rate = round(1./(t[1] - t[0]))
+        assert sampling_rate == 100, 'sampling rate should be 100 Hz'
+
+        wfs = np.stack([east, north, vertical], axis=1)
+        assert np.array_equal(wfs[:, 0], east)
+        assert np.array_equal(wfs[:, 1], north)  
+        assert np.array_equal(wfs[:, 2], vertical)  
+
+        dl = apply_detectors.DataLoader()
+        processed = dl.process_3c_P(wfs, desired_sampling_rate=sampling_rate)
+
+        east_proc = processed[:, 0]
+        north_proc = processed[:, 1]
+        vertical_proc = processed[:, 2]
+        assert max(abs(vertical_proc - vertical_ref)) < 1.e-1
+        assert max(abs(north_proc - north_ref)) < 1.e-1
+        assert max(abs(east_proc - east_ref)) < 1.e-1
+
+
+    def test_process_3c_S(self):
+        vert_mat = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentS/PB.B206.EHZ.zrunet_s.txt', delimiter=',')
+        north = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentS/PB.B206.EH1.zrunet_s.txt', delimiter=',')[:, 1]
+        east  = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentS/PB.B206.EH2.zrunet_s.txt', delimiter=',')[:, 1]
+        vertical_ref = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentS/PB.B206.EHZ.PROC.zrunet_s.txt', delimiter=',')[:, 1]
+        north_ref = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentS/PB.B206.EH1.PROC.zrunet_s.txt', delimiter=',')[:, 1]
+        east_ref = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetThreeComponentS/PB.B206.EH2.PROC.zrunet_s.txt', delimiter=',')[:, 1]
+        vertical = vert_mat[:, 1]
+        t = vert_mat[:, 0]
+
+        assert len(vertical) == 360000
+        assert len(vertical) == len(north)
+        assert len(vertical) == len(east)
+        assert len(vertical) == len(vertical_ref)
+        assert len(vertical) == len(north_ref)
+        assert len(vertical) == len(east_ref)
+
+        sampling_rate = round(1./(t[1] - t[0]))
+        assert sampling_rate == 100, 'sampling rate should be 100 Hz'
+
+        wfs = np.stack([east, north, vertical], axis=1)
+        assert np.array_equal(wfs[:, 0], east)
+        assert np.array_equal(wfs[:, 1], north)  
+        assert np.array_equal(wfs[:, 2], vertical)  
+
+        dl = apply_detectors.DataLoader()
+        processed = dl.process_3c_S(wfs, desired_sampling_rate=sampling_rate)
+
+        east_proc = processed[:, 0]
+        north_proc = processed[:, 1]
+        vertical_proc = processed[:, 2]
+        assert max(abs(vertical_proc - vertical_ref)) < 1.e-1
+        assert max(abs(north_proc - north_ref)) < 1.e-1
+        assert max(abs(east_proc - east_ref)) < 1.e-1
+
+
 class TestPhaseDetector():
     pass
 
@@ -417,4 +640,4 @@ class TestPhaseDetector():
 if __name__ == '__main__':
     from pytests.test_apply_detectors import TestDataLoader
     dltester = TestDataLoader()
-    dltester.test_get_pad_start()
+    dltester.test_process_3c_S()
