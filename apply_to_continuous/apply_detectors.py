@@ -10,54 +10,16 @@ import pyuussmlmodels
 class PhaseDetector():
     def __init__(self, window_length, sliding_interval) -> None:
         self.sliding_interval = sliding_interval
-        self.window_length = window_length
-
-    def format_continuous(self, continuous_data, pad_start=False):
-        # compute the indices for splitting the continuous data into model inputs
-        npts = continuous_data.shape[0]
-        # number points between the end of the center and the end of the window
-        edge_npts = (self.window_length-self.sliding_interval)//2
-
-        # Assume that if the previous day is included that the very start of the trace will be in the 
-        # central window at some point. If not, I think adding one sliding interval at the start will capture it
-        start_pad = 0
-        if pad_start:
-            start_pad = self.sliding_interval
-
-        # Compute the padding at the end of the waveform to be evenly divisible by the sliding window
-        end_pad = self.sliding_interval - (npts - self.window_length)%self.sliding_interval
-        # If the padding is less than edge_npts, then the last edge of the trace will not be included. This 
-        # should be fine when the end is included in the next day but there may not always be a next day.
-        if end_pad < edge_npts:
-            end_pad += self.window_length//2
-
-        npts_padded = npts + start_pad + end_pad
-        n_windows = self.get_n_windows(npts_padded, self.window_length, self.sliding_interval)
-        window_start_indices = np.arange(0, npts_padded-2*self.sliding_interval, self.sliding_interval)
-
-
-        # Extend those windows slightly, when possible to avoid edge effects
-
-        # Process the extend windows
-
-        # Trim the windows back down to the desired size
-
-        # Return array of examples
-        pass
-
-    def get_n_windows(self, npts):
-        return (npts-self.window_length)//self.sliding_interval + 1
+        self.window_length
 
 class DataLoader():
     def __init__(self, store_N_seconds=0) -> None:
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
-        self.continuous_data_includes_previous = False
 
         self.previous_continuous_data = None
         self.previous_endtime = None
-        # TODO: this should be in seconds, if using before resampling
         self.store_N_seconds = store_N_seconds
 
     def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1):
@@ -155,10 +117,10 @@ class DataLoader():
             if ((current_starttime - self.previous_endtime) < self.metadata['dt']*1.5 and 
                 (current_starttime - self.previous_endtime) > 0):
                 self.continuous_data = np.concatenate([self.previous_continuous_data, self.continuous_data])
-                # TODO: should make this another field in the metadata
-                # TODO: should update npts as well
                 self.metadata['starttime'] = self.previous_endtime
-                self.continuous_data_includes_previous = True
+                self.metadata['starttime_epoch'] = self.previous_endtime - UTC("19700101")
+                self.metadata['npts'] = self.continuous_data.shape[0]
+                self.metadata['previous_appended'] = True
             else:
                 # TODO: Do something here, like "interpolate" if the traces are close enough
                 logging.warning('Cannot concatenate previous days data, data is not continuous')
@@ -167,7 +129,6 @@ class DataLoader():
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
-        self.continuous_data_includes_previous = False
 
     def reset_previous_day(self):
         self.previous_continuous_data = None
@@ -184,6 +145,13 @@ class DataLoader():
         meta_data['station'] = stats['station']
         meta_data['starttime_epoch'] = stats['starttime'] - UTC("19700101")
         meta_data['endtime_epoch'] = stats['endtime'] - UTC("19700101")
+
+        # Indicate that no data has been prepended to the trace
+        meta_data['previous_appended'] = False
+        meta_data['original_starttime'] = stats['starttime']
+        meta_data['original_starttime_epoch'] = stats['starttime'] - UTC("19700101")
+        meta_data['original_npts'] = stats['npts']
+
         chan = stats['channel']
         if three_channels:
             chan = f'{chan[0:2]}?'
@@ -208,10 +176,13 @@ class DataLoader():
 
         sampling_rate = round(st[0].stats.sampling_rate)
         # TODO: this only works for days, not hours - fine for me
-        # TODO: If the startime happens to be on the day before, it'll mess this up
         starttime = st[0].stats.starttime
         desired_start = UTC(starttime.year, starttime.month, starttime.day)
         desired_end = desired_start + expected_file_duration_s
+        # TODO: If one of these assertions is thrown, update trimming code to occur
+        # If the startime happens to be on the day before, it'll mess up the desired day
+        assert starttime > desired_start, "The stream begins on the previous day of interest"
+        assert st[0].stats.endtime < desired_end, "The end of the trace goes into the next day"
 
         # If there is not enough signal in this day, skip the day
         total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
@@ -238,7 +209,7 @@ class DataLoader():
 
                 st.merge(fill_value='interpolate')
 
-        # Make sure the trace is the desired length (fill in ends if needed) TODO: is it possible that the files are too long?
+        # Make sure the trace is the desired length (fill in ends if needed) 
         # Check for gaps at the start/end of the day and save if they exist
         start_gap, end_gap = self.format_edge_gaps(st, desired_start, desired_end)
         if start_gap is not None:
