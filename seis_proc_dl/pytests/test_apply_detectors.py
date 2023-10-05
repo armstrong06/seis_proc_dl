@@ -1,5 +1,5 @@
 import pytest
-from apply_to_continuous import apply_detectors
+from seis_proc_dl.apply_to_continuous import apply_detectors
 from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
 import obspy
