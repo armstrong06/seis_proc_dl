@@ -2,15 +2,54 @@ import obspy
 from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
 import logging
+import torch
+import os
 # TODO: Better way to import pyuussmlmodels than adding path?
 import sys
 sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
 import pyuussmlmodels
 
 class PhaseDetector():
-    def __init__(self, window_length, sliding_interval) -> None:
-        self.sliding_interval = sliding_interval
-        self.window_length
+    def __init__(self, min_presigmoid_value=None, device="cuda:0"):
+        #warnings.simplefilter("ignore")
+        self.device = torch.device(device)
+        self.min_presigmoid_value = min_presigmoid_value
+        self.unet = None
+
+    def init_model(self, num_channels, model_to_load):
+        self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
+        logging.info(f"Initialized {num_channels} comp unet with {self.get_n_params()} params...")
+        assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
+        logging.info("Loading model:", model_to_load)
+        check_point = torch.load(model_to_load)
+        self.unet.load_state_dict(check_point['model_state_dict'])
+        self.unet.eval()
+
+    def apply_model_to_batch(self, X, lsigmoid=True, center_window=None):
+        n_samples = X.shape[1] 
+        X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.device)
+        
+        with torch.no_grad:
+            if (lsigmoid):
+                model_output = self.unet.forward(X)
+                if self.min_presigmoid_value is not None:
+                    model_output = clamp_presigmoid_values(model_output, self.min_presigmoid_value)
+                Y_est = torch.sigmoid(model_output)
+            else:
+                Y_est = self.unet.forward(X)
+            
+            Y_est = Y_est.squeeze()
+
+            if center_window:
+                j1 = int(n_samples/2 - center_window)
+                j2 = int(n_samples/2 + center_window)
+                Y_est = Y_est[:,j1:j2]
+
+        return Y_est.to('cpu').detach().numpy()
+
+    def get_n_params(self):
+        return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
+
 
 class DataLoader():
     def __init__(self, store_N_seconds=0) -> None:
