@@ -1,5 +1,6 @@
 import obspy
 from obspy.core.utcdatetime import UTCDateTime as UTC
+from obspy.core.trace import Stats
 import numpy as np
 import logging
 import torch
@@ -8,48 +9,96 @@ import os
 import sys
 sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
 import pyuussmlmodels
+from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
+from seis_proc_dl.detectors.models.unet_model import UNetModel
 
 class PhaseDetector():
-    def __init__(self, min_presigmoid_value=None, device="cuda:0"):
+    def __init__(self, 
+                 model_to_load, 
+                 num_channels, 
+                 min_presigmoid_value=None, 
+                 device="cuda:0"):
         #warnings.simplefilter("ignore")
+        self.unet = None
         self.device = torch.device(device)
         self.min_presigmoid_value = min_presigmoid_value
-    #     self.unet = None
+        self.__init_model(num_channels, model_to_load)
 
-    # def init_model(self, num_channels, model_to_load):
-    #     self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
-    #     logging.info(f"Initialized {num_channels} comp unet with {self.get_n_params()} params...")
-    #     assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
-    #     logging.info("Loading model:", model_to_load)
-    #     check_point = torch.load(model_to_load)
-    #     self.unet.load_state_dict(check_point['model_state_dict'])
-    #     self.unet.eval()
+    def __init_model(self, num_channels, model_to_load):
+        self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
+        logging.info(f"Initialized {num_channels} comp unet with {self.get_n_params()} params...")
+        assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
+        logging.info("Loading model:", model_to_load)
+        check_point = torch.load(model_to_load)
+        self.unet.load_state_dict(check_point['model_state_dict'])
+        self.unet.eval()
 
-    # def apply_model_to_batch(self, X, lsigmoid=True, center_window=None):
-    #     n_samples = X.shape[1] 
-    #     X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.device)
+    def apply_model_to_batch(self, X, lsigmoid=True, center_window=None):
+        n_samples = X.shape[1] 
+        X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.device)
         
-    #     with torch.no_grad:
-    #         if (lsigmoid):
-    #             model_output = self.unet.forward(X)
-    #             if self.min_presigmoid_value is not None:
-    #                 model_output = clamp_presigmoid_values(model_output, self.min_presigmoid_value)
-    #             Y_est = torch.sigmoid(model_output)
-    #         else:
-    #             Y_est = self.unet.forward(X)
+        with torch.no_grad():
+            if (lsigmoid):
+                model_output = self.unet.forward(X)
+                if self.min_presigmoid_value is not None:
+                    model_output = clamp_presigmoid_values(model_output, self.min_presigmoid_value)
+                Y_est = torch.sigmoid(model_output)
+            else:
+                Y_est = self.unet.forward(X)
             
-    #         Y_est = Y_est.squeeze()
+            # Specify axis=1 for case when batch==1
+            Y_est = Y_est.squeeze(1)
 
-    #         if center_window:
-    #             j1 = int(n_samples/2 - center_window)
-    #             j2 = int(n_samples/2 + center_window)
-    #             Y_est = Y_est[:,j1:j2]
+            if center_window:
+                j1 = int(n_samples/2 - center_window)
+                j2 = int(n_samples/2 + center_window)
+                Y_est = Y_est[:,j1:j2]
 
-    #     return Y_est.to('cpu').detach().numpy()
+        return Y_est.to('cpu').detach().numpy()
 
-    # def get_n_params(self):
-    #     return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
+    def get_n_params(self):
+        return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
 
+    def apply_to_continuous(self, continuous, batchsize=256, center_window=None):
+        n_examples, n_samples, n_channels = continuous.shape
+        if center_window is not None:
+            n_samples = center_window*2
+        # model output is N x S
+        post_probs = np.zeros((n_examples, n_samples))
+        batch_start = 0
+        while batch_start < n_examples:
+            batch_end = np.min([batch_start+batchsize, n_examples])
+            batch = continuous[batch_start:batch_end, :, :]
+
+            post_probs[batch_start:batch_end, :] = self.apply_model_to_batch(batch, center_window=center_window)
+
+            batch_start += batchsize
+        # Not going to flatten the post probs here, in case the center window is not used 
+        return post_probs
+    
+    @staticmethod
+    def flatten_post_probs(post_probs):
+        return post_probs.flatten()
+
+    @staticmethod
+    def save_post_probs(outfile, post_probs, stats):
+        assert post_probs.shape[0] == stats['npts'], "posterior probability is the wrong shape"
+        st = obspy.Stream()
+        tr = obspy.Trace()
+        tr.data = (post_probs*100).astype(int)
+        tr.stats = Stats(stats)
+        st += tr
+        st.write(outfile, format="MSEED")
+
+    @staticmethod
+    def trim_post_probs(post_probs, start_pad, end_pad, edge_n_samples):
+        npts = post_probs.shape[0]
+        # Start trim should always be edge_samples
+        start_ind = np.max([0, start_pad-edge_n_samples])
+        # I don't think end_pad will ever be less than edge_n_samples
+        end_ind = np.min([npts, npts-(end_pad-edge_n_samples)])
+
+        return post_probs[start_ind:end_ind]
 
 class DataLoader():
     def __init__(self, store_N_seconds=0) -> None:
@@ -220,8 +269,8 @@ class DataLoader():
         desired_end = desired_start + expected_file_duration_s
         # TODO: If one of these assertions is thrown, update trimming code to occur
         # If the startime happens to be on the day before, it'll mess up the desired day
-        assert starttime > desired_start, "The stream begins on the previous day of interest"
-        assert st[0].stats.endtime < desired_end, "The end of the trace goes into the next day"
+        assert starttime >= desired_start, "The stream begins on the previous day of interest"
+        assert st[0].stats.endtime <= desired_end, "The end of the trace goes into the next day"
 
         # If there is not enough signal in this day, skip the day
         total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
@@ -240,6 +289,7 @@ class DataLoader():
             try:
                 st.merge(fill_value='interpolate')
             except:
+                logging.info("Caught obspy Incompatible Traces warning. Fixing the sampling rates...")
                 delta = round(1/sampling_rate, 3)
 
                 for tr in st:
@@ -266,10 +316,11 @@ class DataLoader():
 
         return st, gaps 
 
-    def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None):
+    def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None, normalize=True):
         # compute the indices for splitting the continuous data into model inputs
         npts, n_comps = self.continuous_data.shape
-        pad_start = (self.store_N_seconds == 0 and self.previous_continuous_data is None)
+        # Always pad the start to avoid having to update the start time of the post probs
+        pad_start = True # (self.store_N_seconds == 0 and self.previous_continuous_data is None)
         total_npts, start_pad_npts, end_pad_npts = self.get_padding(npts, unet_window_length, unet_sliding_interval, pad_start)
         n_windows = self.get_n_windows(total_npts, unet_window_length, unet_sliding_interval)
         window_start_indices = self.get_sliding_window_start_inds(total_npts, unet_window_length, unet_sliding_interval)
@@ -288,6 +339,9 @@ class DataLoader():
             ex = np.copy(data[i0:i1, :])
             if processing_function is not None:
                 ex = processing_function(ex)
+            if normalize:
+                ex = self.normalize_example(ex)
+
             formatted[w_ind, :, :] = ex
 
         return formatted, start_pad_npts, end_pad_npts
@@ -305,18 +359,39 @@ class DataLoader():
         return data
 
     @staticmethod
-    def process_1c_P(wf, desired_sampling_rate=100):
+    def process_1c_P(wf, desired_sampling_rate=100, normalize=True):
         processor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
-        processed = processor.process(wf[:, 0], sampling_rate=desired_sampling_rate)
-        return processed[:, None]
-
-    def process_3c_P(self, wfs, desired_sampling_rate=100):
+        processed = processor.process(wf[:, 0], sampling_rate=desired_sampling_rate)[:, None]
+        return processed
+    
+    def process_3c_P(self, wfs, desired_sampling_rate=100, normalize=True):
         processor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
-        return self._process_3c(wfs, processor, desired_sampling_rate)
+        processed = self._process_3c(wfs, processor, desired_sampling_rate)
+        return processed
    
-    def process_3c_S(self, wfs, desired_sampling_rate=100):
+    def process_3c_S(self, wfs, desired_sampling_rate=100, normalize=True):
         processor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
-        return self._process_3c(wfs, processor, desired_sampling_rate)
+        processed = self._process_3c(wfs, processor, desired_sampling_rate)
+        return processed
+    
+    @staticmethod
+    def normalize_example(waveform):
+        """Normalize one example. Each trace is normalized separately. 
+        Args:
+            waveform (np.array): waveform of size (# samples, # channels)
+
+        Returns:
+            np.array: Normalized waveform
+        """
+        # normalize the data for the window 
+        norm_vals = np.max(abs(waveform), axis=0)
+        norm_vals_inv = np.zeros_like(norm_vals, dtype=float)
+        for nv_ind in range(len(norm_vals)):
+            nv = norm_vals[nv_ind]
+            if abs(nv) > 1e-4:
+                norm_vals_inv[nv_ind] = 1/nv
+
+        return waveform*norm_vals_inv
     
     @staticmethod
     def _process_3c(wfs, processor, desired_sampling_rate=100):
@@ -404,50 +479,3 @@ class DataLoader():
 
         return start_gap, end_gap
     
- # def preprocess_3c_p(self, n_chunks=24):
-    #     assert self.continuous_data.shape[1] == 3, "Not 3C data"
-    #     preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
-    #     return self._preprocess_continuous(preprocessor, n_chunks)
-
-    # def preprocess_3c_s(self, n_chunks=24):
-    #     assert self.continuous_data.shape[1] == 3, "Not 3C data"
-    #     preprocessor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
-    #     return self._preprocess_continuous(preprocessor, n_chunks)
-
-    # def preprocess_1c_p(self, n_chunks=24):
-    #     assert self.continuous_data.shape[1] == 1, "Not 1C data"
-    #     preprocessor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
-    #     return self._preprocess_continuous(preprocessor, n_chunks)
-    
-    # def _preprocess_continuous(self, preprocessor, n_chunks):
-    #     npts = self.continuous_data.shape[0]
-    #     n_comps = self.continuous_data.shape[1]
-    #     chunk_npts = npts//n_chunks
-    #     # TODO: This won't work if resampling
-    #     processed_continuous = np.zeros_like(self.continuous_data)
-    #     i0 = 0
-    #     for i in range(n_chunks):
-    #         i1 = np.min([i0+chunk_npts, npts])
-    #         if self.store_N_seconds > 0 and self.continuous_data_includes_previous:
-    #             i1 += int(self.metadata['sampling_rate']*self.store_N_seconds)
-
-    #         if n_comps == 3:
-    #             E = np.copy(self.continuous_data[i0:i1, 0])
-    #             N = np.copy(self.continuous_data[i0:i1, 1])
-    #             Z = np.copy(self.continuous_data[i0:i1, 2])
-    #             Z_proc, N_proc, E_proc, = preprocessor.process(Z, N, E, sampling_rate=100)
-    #             processed_continuous[i0:i1, 0] = E_proc
-    #             processed_continuous[i0:i1, 1] = N_proc
-    #             processed_continuous[i0:i1, 2] = Z_proc
-    #         else:
-    #             Z = np.copy(self.continuous_data[i0:i1, 0])
-    #             Z_proc = preprocessor.process(Z, sampling_rate=100)
-    #             processed_continuous[i0:i1, :] = Z_proc[:, None]
-
-    #         i0 += chunk_npts
-
-    #     return processed_continuous
-
-# class DataFormatter():
-#     def __init__(self) -> None:
-#         pass

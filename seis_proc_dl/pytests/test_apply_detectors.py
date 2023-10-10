@@ -6,6 +6,7 @@ import obspy
 from obspy.core.util.attribdict import AttribDict
 
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files'
+models_path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/selected_models"
 
 class TestDataLoader():
 
@@ -483,13 +484,21 @@ class TestDataLoader():
         assert np.array_equal(np.unique(padded[0:start_pad, :]), [0])
         assert np.array_equal(np.unique(padded[-end_pad:, :]), [1999])
 
+    def test_normalize(self):
+        dl = apply_detectors.DataLoader()
+        X = np.zeros((1008, 3))
+        X[100, 0] = 1000
+        X[200, 1] = -2000
+        normalized = dl.normalize_example(X)
+        assert np.allclose(np.max(abs(normalized), axis=0), [1, 1, 0])
+
     def test_format_continuous_for_unet_no_proc_3c(self):
         dl = apply_detectors.DataLoader()
         #proc_func = dl.process_3c_P
         dl.continuous_data = np.arange(6000).reshape((3, 2000)).T
         window = 1008
         slide = 500
-        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide)
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide, normalize=False)
         assert start_pad_npts == 254
         assert end_pad_npts == 254
         
@@ -523,7 +532,7 @@ class TestDataLoader():
         dl.continuous_data = np.expand_dims(np.arange(2000), 1)
         window = 1008
         slide = 500
-        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide)
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide, normalize=False)
         assert start_pad_npts == 254
         assert end_pad_npts == 254
         
@@ -550,7 +559,8 @@ class TestDataLoader():
         window = 1008
         slide = 500
         formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
-                                                                                 processing_function=proc_func)
+                                                                                 processing_function=proc_func,
+                                                                                 normalize=True)
 
         assert formatted.shape == (4, 1008, 3)
 
@@ -561,7 +571,8 @@ class TestDataLoader():
         window = 1008
         slide = 500
         formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
-                                                                                 processing_function=proc_func)
+                                                                                 processing_function=proc_func,
+                                                                                 normalize=True)
         assert formatted.shape == (4, 1008, 3)
 
     def test_format_continuous_for_unet_proc_1c_P(self):
@@ -571,8 +582,40 @@ class TestDataLoader():
         window = 1008
         slide = 500
         formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
-                                                                                 processing_function=proc_func)
+                                                                                 processing_function=proc_func,
+                                                                                 normalize=True)
         assert formatted.shape == (4, 1008, 1)
+
+    def test_format_continuous_for_unet_3c_P_normalize(self):
+        dl = apply_detectors.DataLoader()
+        dl.continuous_data = np.arange(6000).reshape((3, 2000)).T
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
+                                                                                 normalize=True)
+
+        assert formatted.shape == (4, 1008, 3)
+        assert np.allclose(np.max(abs(formatted), axis=1), np.ones((4, 3)))
+
+    def test_format_continuous_for_unet_3c_S_normalize(self):
+        dl = apply_detectors.DataLoader()
+        dl.continuous_data = np.arange(6000).reshape((3, 2000)).T
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
+                                                                                 normalize=True)
+        assert formatted.shape == (4, 1008, 3)
+        assert np.allclose(np.max(abs(formatted), axis=1), np.ones((4, 3)))
+
+    def test_format_continuous_for_unet_1c_P_normalize(self):
+        dl = apply_detectors.DataLoader()
+        dl.continuous_data = np.expand_dims(np.arange(2000), 1)
+        window = 1008
+        slide = 500
+        formatted, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window, slide,
+                                                                                 normalize=True)
+        assert formatted.shape == (4, 1008, 1)
+        assert np.allclose(np.max(formatted, axis=1), np.ones((4, 1)))
 
     def test_process_1c_P(self):
         vert_mat = np.loadtxt(f'{examples_dir}/ben_data/detectors/uNetOneComponentP/PB.B206.EHZ.zrunet_p.txt', delimiter=',')
@@ -664,10 +707,95 @@ class TestDataLoader():
 
 
 class TestPhaseDetector():
-    pass
+    def test_class_init(self):
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, min_presigmoid_value=-70, device="cpu")
+        assert pdet.device.type == 'cpu'
+        assert pdet.min_presigmoid_value == -70
+        assert pdet.unet is not None
 
+    def test_apply_model_to_batch_no_center(self):
+        X = np.zeros((2, 1008, 1))
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, min_presigmoid_value=-70, device="cpu")
+        post_probs = pdet.apply_model_to_batch(X)
+        assert post_probs.shape == (2, 1008)
+        assert np.max((post_probs*100).astype(int)) == 0
+ 
+    def test_apply_model_to_batch_no_center_one_example(self):
+        X = np.zeros((1, 1008, 1))
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, min_presigmoid_value=-70, device="cpu")
+        post_probs = pdet.apply_model_to_batch(X)
+        assert post_probs.shape == (1, 1008)
+        assert np.max((post_probs*100).astype(int)) == 0
+ 
+    def test_apply_model_to_batch_one_example(self):
+        X = np.zeros((1, 1008, 1))
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, min_presigmoid_value=-70, device="cpu")
+        post_probs = pdet.apply_model_to_batch(X, center_window=250)
+        assert post_probs.shape == (1, 500)
+
+    def test_trim_post_probs_no_trim(self):
+        post_probs = np.arange(2508)
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
+        trimmed = pdet.trim_post_probs(post_probs, 254, 254, 254)
+        assert trimmed.shape == (2508, )
+
+    def test_trim_post_probs_end_trim(self):
+        post_probs = np.arange(1256)
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
+        trimmed = pdet.trim_post_probs(post_probs, 0, 510, 254)
+        assert trimmed.shape == (1000, )
+        assert trimmed[-1] == 999
+
+    def test_save_probs(self):
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
+        post_probs = np.arange(1, 1001)/1000
+        outfile = f"{examples_dir}/postprobs.mseed"
+        stats = obspy.core.trace.Stats()
+        stats.npts = 1000
+        pdet.save_post_probs(outfile, post_probs, stats)
+
+        st = obspy.read(outfile)
+        assert np.max(st[0].data[0:9]) == 0
+        assert st[0].data[10] == 1
+        assert st[0].data[-1] == 100
+        assert st[0].stats.npts == 1000
+
+    def test_flatten_post_probs(self):
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
+        post_probs = np.arange(50).reshape((10, 5))
+        flattened = pdet.flatten_post_probs(post_probs)
+        assert np.array_equal(flattened, np.arange(50))
+
+    def test_apply_to_continous_no_center_window(self):
+        data = np.zeros((11, 1008, 1))
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
+        post_probs = pdet.apply_to_continuous(data, batchsize=2)
+        assert post_probs.shape == (11, 1008)
+        # Make sure there aren't any examples with all zeros (like they were skipped)
+        assert len(np.unique(np.where(post_probs == np.zeros((1, 1008)))[0])) == 0
+
+    def test_apply_to_continous_center_window(self):
+        data = np.zeros((11, 1008, 1))
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
+        post_probs = pdet.apply_to_continuous(data, batchsize=2, center_window=250)
+        assert post_probs.shape == (11, 500)
+        # Make sure there aren't any examples with all zeros (like they were skipped)
+        assert len(np.unique(np.where(post_probs == np.zeros((1, 500)))[0])) == 0
 
 if __name__ == '__main__':
-    from pytests.test_apply_detectors import TestDataLoader
-    dltester = TestDataLoader()
-    dltester.test_process_3c_S()
+    from seis_proc_dl.pytests.test_apply_detectors import TestDataLoader, TestPhaseDetector
+    # dltester = TestDataLoader()
+    # dltester.test_normalize()
+
+    pdtester = TestPhaseDetector()
+    pdtester.test_apply_to_continous_no_center_window()
