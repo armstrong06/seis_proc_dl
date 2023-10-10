@@ -5,8 +5,8 @@ import os
 from torch.utils.data.sampler import SubsetRandomSampler
 import sys
 #sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl")
-from model.base_model import BaseModel
-from utils.model_helpers import NumpyDataset
+from seis_proc_dl.model.base_model import BaseModel
+from seis_proc_dl.utils.model_helpers import NumpyDataset
 #sys.path.insert(0, "/home/armstrong/Research/git_repos/seis-proc-dl/detectors")
 from ..executor.unet_trainer import UNetTrainer
 from ..evaluation.unet_evaluator import UNetEvaluator

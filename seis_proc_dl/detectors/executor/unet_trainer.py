@@ -5,7 +5,7 @@ from torch.autograd import Variable
 import numpy as np
 from sklearn.metrics import classification_report
 import random
-from utils.model_helpers import clamp_presigmoid_values
+from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
 
 class UNetTrainer():
     def __init__(self, network, optimizer, loss_fn, model_path, device, phase_type="P", 

@@ -9,7 +9,7 @@ import pandas as pd
 import time 
 import glob
 
-from utils.model_helpers import clamp_presigmoid_values
+from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
 
 class UNetEvaluator():
 
