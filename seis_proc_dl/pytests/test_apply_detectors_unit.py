@@ -1,9 +1,9 @@
-import pytest
 from seis_proc_dl.apply_to_continuous import apply_detectors
 from obspy.core.utcdatetime import UTCDateTime as UTC
 import numpy as np
 import obspy
 from obspy.core.util.attribdict import AttribDict
+import os
 
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files'
 models_path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/selected_models"
@@ -105,7 +105,7 @@ class TestDataLoader():
                                             'record_length': 4096, 
                                             'filesize': 9326592})
         dl = apply_detectors.DataLoader()
-        dl.save_meta_data(stats, three_channels=True)
+        dl.store_meta_data(stats, three_channels=True)
 
         # End time is a read only field in Stats => this is what is should end up being
         endtime = UTC(2002, 1, 1, 23, 59, 59, 996000)
@@ -150,7 +150,7 @@ class TestDataLoader():
                                             'record_length': 4096, 
                                             'filesize': 9326592})
         dl = apply_detectors.DataLoader()
-        dl.save_meta_data(stats, three_channels=False)
+        dl.store_meta_data(stats, three_channels=False)
         # Just need to check that the channel code for 1C stations has a Z for the orientation 
         # everything else is the same as 3C
         assert dl.metadata['channel'] == "HHZ"
@@ -705,6 +705,19 @@ class TestDataLoader():
         assert max(abs(north_proc - north_ref)) < 1.e-1
         assert max(abs(east_proc - east_ref)) < 1.e-1
 
+    def test_format_continuous_for_unet_1c_P_real_data(self):
+        dl = apply_detectors.DataLoader()
+        file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        dl.load_1c_data(file1)
+        window_length = 1008
+        sliding_interval = 500
+        data_unproc, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window_length,
+                                                                           sliding_interval,
+                                                                           normalize=False)
+        assert np.array_equal(np.unique(data_unproc[-1][-end_pad_npts:]), dl.continuous_data[-1])
+        assert np.array_equal(np.unique(data_unproc[0][:start_pad_npts]), dl.continuous_data[0])
+        assert np.array_equal(data_unproc[0][start_pad_npts:], dl.continuous_data[0:(window_length-start_pad_npts)])
+        assert np.array_equal(data_unproc[-1][0:-end_pad_npts], dl.continuous_data[-(window_length-end_pad_npts):])
 
 class TestPhaseDetector():
     def test_class_init(self):
@@ -771,7 +784,7 @@ class TestPhaseDetector():
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
         post_probs = np.arange(50).reshape((10, 5))
-        flattened = pdet.flatten_post_probs(post_probs)
+        flattened = pdet.flatten_model_output(post_probs)
         assert np.array_equal(flattened, np.arange(50))
 
     def test_apply_to_continous_no_center_window(self):
@@ -792,10 +805,27 @@ class TestPhaseDetector():
         # Make sure there aren't any examples with all zeros (like they were skipped)
         assert len(np.unique(np.where(post_probs == np.zeros((1, 500)))[0])) == 0
 
-if __name__ == '__main__':
-    from seis_proc_dl.pytests.test_apply_detectors import TestDataLoader, TestPhaseDetector
-    # dltester = TestDataLoader()
-    # dltester.test_normalize()
+    def test_make_outfile_name_1c(self):
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
+        file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        outfile = pdet.make_outfile_name(file1, examples_dir)
+        assert os.path.basename(outfile) == "probs.WY.YMR..HHZ__2002-01-01__2002-01-02.mseed"
+        assert os.path.dirname(outfile) == examples_dir
 
-    pdtester = TestPhaseDetector()
-    pdtester.test_apply_to_continous_no_center_window()
+    def test_make_outfile_name_3c(self):
+        model_file = f"{models_path}/pDetectorMew_model_026.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 3, device="cpu")
+        file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        outfile = pdet.make_outfile_name(file1, examples_dir)
+        assert os.path.basename(outfile) == "probs.WY.YMR..HH__2002-01-01__2002-01-02.mseed"
+        assert os.path.dirname(outfile) == examples_dir
+
+if __name__ == '__main__':
+    from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
+    dltester = TestDataLoader()
+    dltester.test_format_continuous_for_unet_1c_P_real_data()
+  
+    # from seis_proc_dl.pytests.test_apply_detectors_unit import TestPhaseDetector
+    # pdtester = TestPhaseDetector()
+    # pdtester.test_make_outfile_name_1c()

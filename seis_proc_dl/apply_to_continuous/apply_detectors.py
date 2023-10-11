@@ -5,6 +5,7 @@ import numpy as np
 import logging
 import torch
 import os
+import re
 # TODO: Better way to import pyuussmlmodels than adding path?
 import sys
 sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
@@ -17,12 +18,15 @@ class PhaseDetector():
                  model_to_load, 
                  num_channels, 
                  min_presigmoid_value=None, 
-                 device="cuda:0"):
+                 device="cpu",
+                 num_torch_threads=2):
         #warnings.simplefilter("ignore")
+        torch.set_num_threads(num_torch_threads)
         self.unet = None
         self.device = torch.device(device)
         self.min_presigmoid_value = min_presigmoid_value
         self.__init_model(num_channels, model_to_load)
+        self.num_channels = num_channels
 
     def __init_model(self, num_channels, model_to_load):
         self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
@@ -77,7 +81,7 @@ class PhaseDetector():
         return post_probs
     
     @staticmethod
-    def flatten_post_probs(post_probs):
+    def flatten_model_output(post_probs):
         return post_probs.flatten()
 
     @staticmethod
@@ -99,6 +103,21 @@ class PhaseDetector():
         end_ind = np.min([npts, npts-(end_pad-edge_n_samples)])
 
         return post_probs[start_ind:end_ind]
+
+    def make_outfile_name(self, wf_filename, dir):
+        split = re.split(r"__|T", os.path.basename(wf_filename))
+        chan = "Z"
+        if self.num_channels > 1:
+            chan = ""
+        post_prob_name = f"probs.{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
+
+        if not os.path.exists(dir):
+            logging.info(f"Making directory {dir}")
+            os.mkdir(dir)
+
+        outfile = os.path.join(dir, post_prob_name)
+
+        return outfile
 
 class DataLoader():
     def __init__(self, store_N_seconds=0) -> None:
@@ -162,7 +181,7 @@ class DataLoader():
 
         self.continuous_data = cont_data
         self.gaps = gaps
-        self.save_meta_data(st_E[0].stats)
+        self.store_meta_data(st_E[0].stats)
         
         if self.store_N_seconds > 0:
             self.prepend_previous_data()
@@ -186,7 +205,7 @@ class DataLoader():
 
         self.continuous_data = cont_data
         self.gaps = gaps
-        self.save_meta_data(st[0].stats)
+        self.store_meta_data(st[0].stats, three_channels=False)
 
         if self.store_N_seconds > 0:
             # Update continous data and the metadata to include the end of the previous trace
@@ -195,7 +214,55 @@ class DataLoader():
             store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
             self.previous_continuous_data = cont_data[-store_N_samples:, :]
             self.previous_endtime = st[0].stats.endtime
+   
+    def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None, normalize=True):
+        # compute the indices for splitting the continuous data into model inputs
+        npts, n_comps = self.continuous_data.shape
+        # Always pad the start to avoid having to update the start time of the post probs
+        pad_start = True # (self.store_N_seconds == 0 and self.previous_continuous_data is None)
+        total_npts, start_pad_npts, end_pad_npts = self.get_padding(npts, unet_window_length, unet_sliding_interval, pad_start)
+        n_windows = self.get_n_windows(total_npts, unet_window_length, unet_sliding_interval)
+        window_start_indices = self.get_sliding_window_start_inds(total_npts, unet_window_length, unet_sliding_interval)
+        
+        assert n_windows == window_start_indices.shape[0]
+        
+        # Extend those windows slightly, when possible to avoid edge effects
+        # TODO: Add this in later if needed. It shouldn't be that important because of the relatively small 
+        # window + taper size and the sliding windows
 
+        data = self.add_padding(np.copy(self.continuous_data), start_pad_npts, end_pad_npts)
+
+        # Process the extended windows
+        formatted = np.zeros((n_windows, unet_window_length, n_comps))
+        for w_ind in range(n_windows):
+            i0= window_start_indices[w_ind]
+            i1 = i0 + unet_window_length
+            ex = np.copy(data[i0:i1, :])
+            if processing_function is not None:
+                ex = processing_function(ex)
+            if normalize:
+                ex = self.normalize_example(ex)
+
+            formatted[w_ind, :, :] = ex
+
+        return formatted, start_pad_npts, end_pad_npts
+
+    @staticmethod
+    def process_1c_P(wf, desired_sampling_rate=100, normalize=True):
+        processor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
+        processed = processor.process(wf[:, 0], sampling_rate=desired_sampling_rate)[:, None]
+        return processed
+    
+    def process_3c_P(self, wfs, desired_sampling_rate=100, normalize=True):
+        processor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
+        processed = self._process_3c(wfs, processor, desired_sampling_rate)
+        return processed
+   
+    def process_3c_S(self, wfs, desired_sampling_rate=100, normalize=True):
+        processor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
+        processed = self._process_3c(wfs, processor, desired_sampling_rate)
+        return processed
+    
     def prepend_previous_data(self):
         current_starttime = self.metadata['starttime']
         if self.previous_continuous_data is not None:
@@ -222,7 +289,7 @@ class DataLoader():
         self.previous_continuous_data = None
         self.previous_endtime = None
 
-    def save_meta_data(self, stats, three_channels=True):
+    def store_meta_data(self, stats, three_channels=True):
         meta_data = {}
         meta_data["sampling_rate"] = stats['sampling_rate']
         meta_data['dt'] = stats['delta']
@@ -276,6 +343,7 @@ class DataLoader():
         total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
         max_npts = expected_file_duration_s*round(sampling_rate)
         if (total_npts/max_npts)*100 < min_signal_percent:
+            logging.warning(f"{os.path.basename(file)} does not have enough data, skipping")
             # Return the entire file period as a gap
             return None, [self.format_edge_gaps(st, desired_start, desired_end, entire_file=True)]
 
@@ -316,36 +384,6 @@ class DataLoader():
 
         return st, gaps 
 
-    def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None, normalize=True):
-        # compute the indices for splitting the continuous data into model inputs
-        npts, n_comps = self.continuous_data.shape
-        # Always pad the start to avoid having to update the start time of the post probs
-        pad_start = True # (self.store_N_seconds == 0 and self.previous_continuous_data is None)
-        total_npts, start_pad_npts, end_pad_npts = self.get_padding(npts, unet_window_length, unet_sliding_interval, pad_start)
-        n_windows = self.get_n_windows(total_npts, unet_window_length, unet_sliding_interval)
-        window_start_indices = self.get_sliding_window_start_inds(total_npts, unet_window_length, unet_sliding_interval)
-
-        # Extend those windows slightly, when possible to avoid edge effects
-        # TODO: Add this in later if needed. It shouldn't be that important because of the relatively small 
-        # window + taper size and the sliding windows
-
-        data = self.add_padding(np.copy(self.continuous_data), start_pad_npts, end_pad_npts)
-
-        # Process the extended windows
-        formatted = np.zeros((n_windows, unet_window_length, n_comps))
-        for w_ind in range(n_windows):
-            i0= window_start_indices[w_ind]
-            i1 = i0 + unet_window_length
-            ex = np.copy(data[i0:i1, :])
-            if processing_function is not None:
-                ex = processing_function(ex)
-            if normalize:
-                ex = self.normalize_example(ex)
-
-            formatted[w_ind, :, :] = ex
-
-        return formatted, start_pad_npts, end_pad_npts
-
     @staticmethod
     def add_padding(data, start_pad_npts, end_pad_npts):
         n_comps = data.shape[1]
@@ -358,22 +396,6 @@ class DataLoader():
 
         return data
 
-    @staticmethod
-    def process_1c_P(wf, desired_sampling_rate=100, normalize=True):
-        processor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
-        processed = processor.process(wf[:, 0], sampling_rate=desired_sampling_rate)[:, None]
-        return processed
-    
-    def process_3c_P(self, wfs, desired_sampling_rate=100, normalize=True):
-        processor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
-        processed = self._process_3c(wfs, processor, desired_sampling_rate)
-        return processed
-   
-    def process_3c_S(self, wfs, desired_sampling_rate=100, normalize=True):
-        processor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
-        processed = self._process_3c(wfs, processor, desired_sampling_rate)
-        return processed
-    
     @staticmethod
     def normalize_example(waveform):
         """Normalize one example. Each trace is normalized separately. 
