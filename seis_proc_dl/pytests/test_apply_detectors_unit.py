@@ -242,8 +242,8 @@ class TestDataLoader():
 
         # Check that the continuous data and metadata has been correctly updated
         assert dl.continuous_data.shape == (8641000, 1)
-        assert dl.metadata['starttime'] == previous_endtime
-        assert UTC(dl.metadata['starttime_epoch']) == previous_endtime
+        assert dl.metadata['starttime'] == dl.metadata['original_starttime'] - 10
+        assert UTC(dl.metadata['starttime_epoch']) == dl.metadata['original_starttime'] - 10
         assert dl.metadata['npts'] == 8641000
         assert dl.metadata['previous_appended'] == True
         assert np.array_equal(saved_previous, dl.continuous_data[0:1000, :])
@@ -280,7 +280,7 @@ class TestDataLoader():
         
         # Check that the continuous data has been correctly updated
         assert dl.continuous_data.shape == (8641000, 3)
-        assert dl.metadata['starttime'] == previous_endtime
+        assert dl.metadata['starttime'] == dl.metadata['original_starttime'] - 10
         assert np.array_equal(saved_previous, dl.continuous_data[0:1000, :])
 
         # Check that the previous data has been correctly updated
@@ -308,7 +308,7 @@ class TestDataLoader():
         
         # Check that the continuous data has been correctly updated
         assert dl.continuous_data.shape == (8641000, 1)
-        assert dl.metadata['starttime'] == previous_endtime
+        assert dl.metadata['starttime'] == dl.metadata['original_starttime'] - 10 
 
         # Check that the previous data has been correctly updated
         assert dl.previous_endtime == dl.metadata['endtime']

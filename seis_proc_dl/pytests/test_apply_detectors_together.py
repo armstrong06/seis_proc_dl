@@ -10,6 +10,37 @@ models_path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/selected_mode
 
 class TestWorkflow():
 
+    def test_prepend_previous_and_save(self):
+        file1 = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        # Load first days data data succesfully
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
+        dl.load_1c_data(file1, min_signal_percent=0)
+
+        # load the second days data
+        file2 = f'{examples_dir}/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
+        dl.load_1c_data(file2, min_signal_percent=0)
+
+        # Just want to check that the metadata is correct after saving =>
+        # don't need to do any additional formatting
+
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pd = apply_detectors.PhaseDetector(model_file,
+                                    1,
+                                    min_presigmoid_value=-70,
+                                    device="cpu")
+
+        fake_data = np.arange(dl.metadata['npts'])
+        outfile = pd.make_outfile_name("fake.EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed", examples_dir)
+        pd.save_post_probs(outfile, fake_data, dl.metadata)
+        st = obspy.read(outfile)
+        assert st[0].stats.starttime == dl.metadata['starttime']
+        assert st[0].stats.endtime == dl.metadata['endtime']
+        assert st[0].stats.npts == dl.metadata['npts']
+        assert st[0].stats.delta == dl.metadata['dt']
+        assert st[0].stats.station == dl.metadata['station']
+        assert st[0].stats.network == dl.metadata['network']
+        assert st[0].stats.channel == dl.metadata['channel']
+
     def load_day_and_apply_1c(self):
         dl = apply_detectors.DataLoader()
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'

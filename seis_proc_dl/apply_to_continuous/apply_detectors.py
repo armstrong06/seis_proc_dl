@@ -272,8 +272,8 @@ class DataLoader():
             if ((current_starttime - self.previous_endtime) < self.metadata['dt']*1.5 and 
                 (current_starttime - self.previous_endtime) > 0):
                 self.continuous_data = np.concatenate([self.previous_continuous_data, self.continuous_data])
-                self.metadata['starttime'] = self.previous_endtime
-                self.metadata['starttime_epoch'] = self.previous_endtime - UTC("19700101")
+                self.metadata['starttime'] = self.metadata['starttime'] - self.store_N_seconds
+                self.metadata['starttime_epoch'] = self.metadata['starttime'] - UTC("19700101")
                 self.metadata['npts'] = self.continuous_data.shape[0]
                 self.metadata['previous_appended'] = True
             else:
