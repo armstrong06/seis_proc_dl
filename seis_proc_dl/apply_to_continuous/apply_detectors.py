@@ -187,9 +187,6 @@ class DataLoader():
         
         if self.store_N_seconds > 0:
             self.prepend_previous_data()
-            store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
-            self.previous_continuous_data = cont_data[-store_N_samples:, :]
-            self.previous_endtime = endtimes[0]
 
     def load_1c_data(self, file, min_signal_percent=1):
 
@@ -211,11 +208,9 @@ class DataLoader():
 
         if self.store_N_seconds > 0:
             # Update continous data and the metadata to include the end of the previous trace
+            # TODO: don't prepend previous data if the end of the previous day has been filled in because
+            # of a gap
             self.prepend_previous_data()
-            # Save the end of the current trace as the previous trace for next time
-            store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
-            self.previous_continuous_data = cont_data[-store_N_samples:, :]
-            self.previous_endtime = st[0].stats.endtime
    
     def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None, normalize=True):
         # compute the indices for splitting the continuous data into model inputs
@@ -278,7 +273,7 @@ class DataLoader():
                 (current_starttime - self.previous_endtime) > 0):
                 self.continuous_data = np.concatenate([self.previous_continuous_data, self.continuous_data])
                 self.metadata['starttime'] = self.metadata['starttime'] - self.store_N_seconds
-                # self.metadata['starttime_epoch'] = self.metadata['starttime'] - UTC("19700101")
+                self.metadata['starttime_epoch'] = self.metadata['starttime'] - UTC("19700101")
                 self.metadata['npts'] = self.continuous_data.shape[0]
                 self.metadata['previous_appended'] = True
             else:
@@ -286,6 +281,11 @@ class DataLoader():
                 logging.warning('Cannot concatenate previous days data, data is not continuous')
 
     def reset_loader(self):
+        if self.store_N_seconds > 0 and self.continuous_data is not None:
+            # Update previous day
+            store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
+            self.previous_continuous_data = self.continuous_data[-store_N_samples:, :]
+            self.previous_endtime = self.metadata['original_endtime']
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
@@ -296,28 +296,35 @@ class DataLoader():
 
     def store_meta_data(self, stats, three_channels=True):
         meta_data = {}
+        meta_data['network'] = stats['network']
+        meta_data['station'] = stats['station']
+        chan = stats['channel']
+        if three_channels:
+            chan = f'{chan[0:2]}?'
+        meta_data['channel'] = chan
         meta_data["sampling_rate"] = stats['sampling_rate']
         meta_data['dt'] = stats['delta']
         meta_data['starttime'] = stats['starttime']
         # Don't store 'endtime' because readonly field in obspy 
         #meta_data['endtime'] = stats['endtime']
         meta_data['npts'] = stats['npts']
-        meta_data['network'] = stats['network']
-        meta_data['station'] = stats['station']
-        #meta_data['starttime_epoch'] = stats['starttime'] - UTC("19700101")
-        #meta_data['endtime_epoch'] = stats['endtime'] - UTC("19700101")
+
+        # Keep epoch time for convenience later, backup in case isoformat str format
+        #  can't be read in by other application 
+        meta_data['starttime_epoch'] = stats['starttime'] - UTC("19700101")
+        meta_data['endtime_epoch'] = stats['endtime'] - UTC("19700101")
 
         # Indicate that no data has been prepended to the trace
+        # Store the original information - original_starttime and orignal_npts since starttime
+        # and npts will change if previous data is prepended. Original_endtime so I can make 
+        # sure the endtime in the final post probs file matches, since endtime will be updated 
+        # by obspy based on the starttime and npts.
         meta_data['previous_appended'] = False
         meta_data['original_starttime'] = stats['starttime']
         meta_data['original_endtime'] = stats['endtime']
-        # meta_data['original_starttime_epoch'] = stats['starttime'] - UTC("19700101")
+        meta_data['original_starttime_epoch'] = stats['starttime'] - UTC("19700101")
+        meta_data['original_endtime_epoch'] = stats['endtime'] - UTC("19700101")
         meta_data['original_npts'] = stats['npts']
-
-        chan = stats['channel']
-        if three_channels:
-            chan = f'{chan[0:2]}?'
-        meta_data['channel'] = chan
 
         self.metadata = meta_data
 
@@ -391,25 +398,40 @@ class DataLoader():
 
         return st, gaps 
 
-    def write_gap_file(self, filename, dir):
+    def write_data_info(self, filename, dir):
+        """Write the trace metadata and gap information to a json file. For each gap, 
+        there is a list containing the channel of the gap, the gap starttime and endtime in epoch format, the duration of 
+        the gap in samples, and the sample corresponding to the start and end of the gap in 
+        the posterior probability file.  
+
+        Args:
+            filename (str): The name of the file
+            dir (str): The directory to store the file
+        """
         all_gap_info = []
         for gap in self.gaps:
             gap_info = []
             start_ind = int((gap[4]-self.metadata['starttime'])*self.metadata['sampling_rate'])
             end_ind = start_ind + gap[-1]
-            gap_info += [gap[4] - UTC('1970-01-01'), 
+            gap_info += [gap[3],
+                         gap[4] - UTC('1970-01-01'), 
                          gap[5] - UTC('1970-01-01'), 
                          gap[-1], 
                          start_ind, 
                          end_ind]
             all_gap_info.append(gap_info)
         
-        #save
         # Can't use json as is because of UTCDateTime object - maybe make them strings?
         # Like json because it is supported by other languages, not just python
-        gap_dict = self.metadata
+        gap_dict = self.metadata.copy()
+        for key in gap_dict.keys():
+            if "time" in key and 'epoch' not in key:
+                gap_dict[key] = gap_dict[key].isoformat()
+
         gap_dict['gaps'] = all_gap_info
-        json.dump(os.path.join(dir, filename))
+        with open(os.path.join(dir, filename), 'w') as fp:
+            json.dump(gap_dict, fp, sort_keys=True, 
+                      indent=4, ensure_ascii=False)
 
     @staticmethod
     def add_padding(data, start_pad_npts, end_pad_npts):
