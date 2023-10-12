@@ -8,6 +8,7 @@ import os
 import re
 # TODO: Better way to import pyuussmlmodels than adding path?
 import sys
+import json
 sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
 import pyuussmlmodels
 from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
@@ -89,13 +90,14 @@ class PhaseDetector():
         assert post_probs.shape[0] == stats['npts'], "posterior probability is the wrong shape"
         st = obspy.Stream()
         tr = obspy.Trace()
-        tr.data = (post_probs*100).astype(int)
+        tr.data = (post_probs*100).astype(np.int16)
         tr.stats = Stats(stats)
         st += tr
         st.write(outfile, format="MSEED")
 
     @staticmethod
     def trim_post_probs(post_probs, start_pad, end_pad, edge_n_samples):
+        assert len(post_probs.shape) == 1, "Post probs need to be flattened before trimming"
         npts = post_probs.shape[0]
         # Start trim should always be edge_samples
         start_ind = np.max([0, start_pad-edge_n_samples])
@@ -104,12 +106,12 @@ class PhaseDetector():
 
         return post_probs[start_ind:end_ind]
 
-    def make_outfile_name(self, wf_filename, dir):
+    def make_outfile_name(self, wf_filename, dir, phase_type):
         split = re.split(r"__|T", os.path.basename(wf_filename))
         chan = "Z"
         if self.num_channels > 1:
             chan = ""
-        post_prob_name = f"probs.{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
+        post_prob_name = f"probs.{phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
 
         if not os.path.exists(dir):
             logging.info(f"Making directory {dir}")
@@ -248,17 +250,20 @@ class DataLoader():
         return formatted, start_pad_npts, end_pad_npts
 
     @staticmethod
-    def process_1c_P(wf, desired_sampling_rate=100, normalize=True):
+    def process_1c_P(wf, desired_sampling_rate=100):
+        assert wf.shape[1] == 1, "Incorrect number of channels"
         processor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
         processed = processor.process(wf[:, 0], sampling_rate=desired_sampling_rate)[:, None]
         return processed
     
-    def process_3c_P(self, wfs, desired_sampling_rate=100, normalize=True):
+    def process_3c_P(self, wfs, desired_sampling_rate=100):
+        assert wfs.shape[1] == 3, "Incorrect number of channels"
         processor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
         processed = self._process_3c(wfs, processor, desired_sampling_rate)
         return processed
    
-    def process_3c_S(self, wfs, desired_sampling_rate=100, normalize=True):
+    def process_3c_S(self, wfs, desired_sampling_rate=100):
+        assert wfs.shape[1] == 3, "Incorrect number of channels"
         processor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
         processed = self._process_3c(wfs, processor, desired_sampling_rate)
         return processed
@@ -273,7 +278,7 @@ class DataLoader():
                 (current_starttime - self.previous_endtime) > 0):
                 self.continuous_data = np.concatenate([self.previous_continuous_data, self.continuous_data])
                 self.metadata['starttime'] = self.metadata['starttime'] - self.store_N_seconds
-                self.metadata['starttime_epoch'] = self.metadata['starttime'] - UTC("19700101")
+                # self.metadata['starttime_epoch'] = self.metadata['starttime'] - UTC("19700101")
                 self.metadata['npts'] = self.continuous_data.shape[0]
                 self.metadata['previous_appended'] = True
             else:
@@ -294,17 +299,19 @@ class DataLoader():
         meta_data["sampling_rate"] = stats['sampling_rate']
         meta_data['dt'] = stats['delta']
         meta_data['starttime'] = stats['starttime']
-        meta_data['endtime'] = stats['endtime']
+        # Don't store 'endtime' because readonly field in obspy 
+        #meta_data['endtime'] = stats['endtime']
         meta_data['npts'] = stats['npts']
         meta_data['network'] = stats['network']
         meta_data['station'] = stats['station']
-        meta_data['starttime_epoch'] = stats['starttime'] - UTC("19700101")
-        meta_data['endtime_epoch'] = stats['endtime'] - UTC("19700101")
+        #meta_data['starttime_epoch'] = stats['starttime'] - UTC("19700101")
+        #meta_data['endtime_epoch'] = stats['endtime'] - UTC("19700101")
 
         # Indicate that no data has been prepended to the trace
         meta_data['previous_appended'] = False
         meta_data['original_starttime'] = stats['starttime']
-        meta_data['original_starttime_epoch'] = stats['starttime'] - UTC("19700101")
+        meta_data['original_endtime'] = stats['endtime']
+        # meta_data['original_starttime_epoch'] = stats['starttime'] - UTC("19700101")
         meta_data['original_npts'] = stats['npts']
 
         chan = stats['channel']
@@ -383,6 +390,26 @@ class DataLoader():
                          fill_value=st[0].data[-1], nearest_sample=False)
 
         return st, gaps 
+
+    def write_gap_file(self, filename, dir):
+        all_gap_info = []
+        for gap in self.gaps:
+            gap_info = []
+            start_ind = int((gap[4]-self.metadata['starttime'])*self.metadata['sampling_rate'])
+            end_ind = start_ind + gap[-1]
+            gap_info += [gap[4] - UTC('1970-01-01'), 
+                         gap[5] - UTC('1970-01-01'), 
+                         gap[-1], 
+                         start_ind, 
+                         end_ind]
+            all_gap_info.append(gap_info)
+        
+        #save
+        # Can't use json as is because of UTCDateTime object - maybe make them strings?
+        # Like json because it is supported by other languages, not just python
+        gap_dict = self.metadata
+        gap_dict['gaps'] = all_gap_info
+        json.dump(os.path.join(dir, filename))
 
     @staticmethod
     def add_padding(data, start_pad_npts, end_pad_npts):

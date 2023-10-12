@@ -84,7 +84,7 @@ class TestDataLoader():
         dl = apply_detectors.DataLoader()
         dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
         assert dl.continuous_data.shape == (8640000, 3)
-        assert len(dl.metadata.keys()) == 14
+        assert len(dl.metadata.keys()) == 11
         assert len(dl.gaps) == 3
 
     def test_save_meta_data_3c(self):
@@ -117,7 +117,7 @@ class TestDataLoader():
         assert dl_meta['dt'] == 0.01
         assert dl_meta['starttime'] == stats.starttime
         assert dl_meta['original_starttime'] == stats.starttime
-        assert dl_meta['endtime'] == endtime    
+        assert dl_meta['original_endtime'] == endtime    
         assert dl_meta['npts'] == stats.npts
         assert dl_meta['network'] == stats.network
         assert dl_meta['station'] == stats.station
@@ -125,9 +125,9 @@ class TestDataLoader():
         assert dl_meta['original_npts'] == stats.npts
 
         # Make sure the epoch time converts back to the utc time correctly
-        assert UTC(dl_meta['starttime_epoch']) == stats.starttime
-        assert UTC(dl_meta['endtime_epoch']) == endtime
-        assert UTC(dl_meta['original_starttime_epoch']) == stats.starttime
+        #assert UTC(dl_meta['starttime_epoch']) == stats.starttime
+        #assert UTC(dl_meta['endtime_epoch']) == endtime
+        #assert UTC(dl_meta['original_starttime_epoch']) == stats.starttime
 
         # Make sure the 3C channel code has a ? for the orientation 
         assert dl_meta['channel'] == "HH?"
@@ -173,7 +173,7 @@ class TestDataLoader():
         dl = apply_detectors.DataLoader()
         dl.load_1c_data(file, min_signal_percent=0)
         assert dl.continuous_data.shape == (8640000, 1)
-        assert len(dl.metadata.keys()) == 14
+        assert len(dl.metadata.keys()) == 11
         assert len(dl.gaps) == 1
         assert dl.gaps[0][3] == "HHZ"
 
@@ -225,7 +225,7 @@ class TestDataLoader():
         # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_1c_data(file1, min_signal_percent=0)
-        previous_endtime = dl.metadata['endtime']
+        previous_endtime = dl.metadata['original_endtime']
 
         saved_previous = dl.previous_continuous_data
 
@@ -243,7 +243,7 @@ class TestDataLoader():
         # Check that the continuous data and metadata has been correctly updated
         assert dl.continuous_data.shape == (8641000, 1)
         assert dl.metadata['starttime'] == dl.metadata['original_starttime'] - 10
-        assert UTC(dl.metadata['starttime_epoch']) == dl.metadata['original_starttime'] - 10
+        #assert UTC(dl.metadata['starttime_epoch']) == dl.metadata['original_starttime'] - 10
         assert dl.metadata['npts'] == 8641000
         assert dl.metadata['previous_appended'] == True
         assert np.array_equal(saved_previous, dl.continuous_data[0:1000, :])
@@ -252,11 +252,11 @@ class TestDataLoader():
         # Check that the original information is still preserved in the metadata
         st2 = obspy.read(file2)
         assert dl.metadata['original_starttime'] == st2[0].stats.starttime
-        assert UTC(dl.metadata['original_starttime_epoch']) == st2[0].stats.starttime
+        #assert UTC(dl.metadata['original_starttime_epoch']) == st2[0].stats.starttime
         assert dl.metadata['original_npts'] == 8640000
 
         # Check that the previous data has been correctly updated
-        assert dl.previous_endtime == dl.metadata['endtime']
+        assert dl.previous_endtime == dl.metadata['original_endtime']
         assert np.array_equal(dl.previous_continuous_data, dl.continuous_data[-1000:, :])
 
 
@@ -266,7 +266,7 @@ class TestDataLoader():
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'        # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
-        previous_endtime = dl.metadata['endtime']
+        previous_endtime = dl.metadata['original_endtime']
         saved_previous = dl.previous_continuous_data
 
         # Check previous data is loaded
@@ -284,7 +284,7 @@ class TestDataLoader():
         assert np.array_equal(saved_previous, dl.continuous_data[0:1000, :])
 
         # Check that the previous data has been correctly updated
-        assert dl.previous_endtime == dl.metadata['endtime']
+        assert dl.previous_endtime == dl.metadata['original_endtime']
         assert np.array_equal(dl.previous_continuous_data, dl.continuous_data[-1000:, :])
 
         # load the 2nd set of files without prepending previous so I can make sure the signals are the same
@@ -297,7 +297,7 @@ class TestDataLoader():
         # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_1c_data(file1, min_signal_percent=0)
-        previous_endtime = dl.metadata['endtime']
+        previous_endtime = dl.metadata['original_endtime']
 
         # Check previous data is loaded
         assert dl.previous_continuous_data.shape == (1000, 1)
@@ -311,7 +311,7 @@ class TestDataLoader():
         assert dl.metadata['starttime'] == dl.metadata['original_starttime'] - 10 
 
         # Check that the previous data has been correctly updated
-        assert dl.previous_endtime == dl.metadata['endtime']
+        assert dl.previous_endtime == dl.metadata['original_endtime']
         assert np.array_equal(dl.previous_continuous_data, dl.continuous_data[-1000:, :])
   
     def test_load_3c_data_reset_previous_day(self):
@@ -719,6 +719,13 @@ class TestDataLoader():
         assert np.array_equal(data_unproc[0][start_pad_npts:], dl.continuous_data[0:(window_length-start_pad_npts)])
         assert np.array_equal(data_unproc[-1][0:-end_pad_npts], dl.continuous_data[-(window_length-end_pad_npts):])
 
+    def test_write_gap_file(self):
+        dl = apply_detectors.DataLoader()
+        file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        dl.load_1c_data(file1)
+        dl.write_gap_file("gaps.json", examples_dir)
+        pass
+
 class TestPhaseDetector():
     def test_class_init(self):
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
@@ -809,23 +816,23 @@ class TestPhaseDetector():
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        outfile = pdet.make_outfile_name(file1, examples_dir)
-        assert os.path.basename(outfile) == "probs.WY.YMR..HHZ__2002-01-01__2002-01-02.mseed"
+        outfile = pdet.make_outfile_name(file1, examples_dir, "P")
+        assert os.path.basename(outfile) == "probs.P__WY.YMR..HHZ__2002-01-01__2002-01-02.mseed"
         assert os.path.dirname(outfile) == examples_dir
 
     def test_make_outfile_name_3c(self):
         model_file = f"{models_path}/pDetectorMew_model_026.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 3, device="cpu")
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        outfile = pdet.make_outfile_name(file1, examples_dir)
-        assert os.path.basename(outfile) == "probs.WY.YMR..HH__2002-01-01__2002-01-02.mseed"
-        assert os.path.dirname(outfile) == examples_dir
+        outfile = pdet.make_outfile_name(file1, examples_dir, "P")
+        assert os.path.basename(outfile) == "probs.P__WY.YMR..HH__2002-01-01__2002-01-02.mseed"
+        assert os.path.dirname(outfile) == examples_dir        
 
 if __name__ == '__main__':
     from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
     dltester = TestDataLoader()
-    dltester.test_format_continuous_for_unet_1c_P_real_data()
+    dltester.test_write_gap_file()
   
     # from seis_proc_dl.pytests.test_apply_detectors_unit import TestPhaseDetector
     # pdtester = TestPhaseDetector()
-    # pdtester.test_make_outfile_name_1c()
+    # pdtester.test_save_probs()
