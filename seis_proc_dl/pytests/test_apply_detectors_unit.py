@@ -790,6 +790,20 @@ class TestDataLoader():
         assert json_dict['channel'] != json_dict['gaps'][0][0]
         assert json_dict['channel'] == 'HH?'
 
+    def test_make_outfile_name_1c(self):
+        dl = apply_detectors.DataLoader()    
+        fileZ = f'{examples_dir}/WY.YMB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        outfile = dl.make_outfile_name(fileZ, examples_dir)
+        assert os.path.basename(outfile) == 'WY.YMB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json'
+        assert os.path.dirname(outfile) == examples_dir
+
+    def test_make_outfile_name_3c(self):
+        dl = apply_detectors.DataLoader()    
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        outfile = dl.make_outfile_name(fileZ, examples_dir)
+        assert os.path.basename(outfile) == 'WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json'
+        assert os.path.dirname(outfile) == examples_dir
+        
 class TestPhaseDetector():
     def test_class_init(self):
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
@@ -879,9 +893,9 @@ class TestPhaseDetector():
     def test_make_outfile_name_1c(self):
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, device="cpu")
-        file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        file1 = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         outfile = pdet.make_outfile_name(file1, examples_dir, "P")
-        assert os.path.basename(outfile) == "probs.P__WY.YMR..HHZ__2002-01-01__2002-01-02.mseed"
+        assert os.path.basename(outfile) == 'probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         assert os.path.dirname(outfile) == examples_dir
 
     def test_make_outfile_name_3c(self):
@@ -889,14 +903,14 @@ class TestPhaseDetector():
         pdet = apply_detectors.PhaseDetector(model_file, 3, device="cpu")
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         outfile = pdet.make_outfile_name(file1, examples_dir, "P")
-        assert os.path.basename(outfile) == "probs.P__WY.YMR..HH__2002-01-01__2002-01-02.mseed"
+        assert os.path.basename(outfile) == 'probs.P__WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         assert os.path.dirname(outfile) == examples_dir        
 
 if __name__ == '__main__':
     from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
     dltester = TestDataLoader()
-    dltester.test_load_data_3c_prepend_previous()
+    dltester.test_make_outfile_name_1c()
   
     # from seis_proc_dl.pytests.test_apply_detectors_unit import TestPhaseDetector
     # pdtester = TestPhaseDetector()
-    # pdtester.test_save_probs()
+    # pdtester.test_make_outfile_name_1c()

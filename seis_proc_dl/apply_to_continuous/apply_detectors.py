@@ -106,12 +106,15 @@ class PhaseDetector():
 
         return post_probs[start_ind:end_ind]
 
-    def make_outfile_name(self, wf_filename, dir, phase_type):
-        split = re.split(r"__|T", os.path.basename(wf_filename))
-        chan = "Z"
-        if self.num_channels > 1:
-            chan = ""
-        post_prob_name = f"probs.{phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
+    @staticmethod
+    def make_outfile_name(wf_filename, dir, phase_type):
+        # split = re.split(r"__|T", os.path.basename(wf_filename))
+        # chan = "Z"
+        # if self.num_channels > 1:
+        #     chan = ""
+        # post_prob_name = f"probs.{phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
+
+        post_prob_name = f"probs.{phase_type}__{os.path.basename(wf_filename)}"
 
         if not os.path.exists(dir):
             logging.info(f"Making directory {dir}")
@@ -550,3 +553,18 @@ class DataLoader():
 
         return start_gap, end_gap
     
+    @staticmethod
+    def make_outfile_name(wf_filename, dir):
+        post_prob_name = f'{wf_filename.split(".mseed")[0]}.json'
+
+        # if num_channels > 1:
+        #     split = re.split(r"__|T", os.path.basename(wf_filename))
+        #     post_prob_name = f"{split[0][0:-1]}__{split[1]}__{split[3]}.json"
+
+        if not os.path.exists(dir):
+            logging.info(f"Making directory {dir}")
+            os.mkdir(dir)
+
+        outfile = os.path.join(dir, post_prob_name)
+
+        return outfile
