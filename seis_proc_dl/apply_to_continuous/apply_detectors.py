@@ -14,6 +14,16 @@ import pyuussmlmodels
 from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
 from seis_proc_dl.detectors.models.unet_model import UNetModel
 
+logger = logging.getLogger("apply_detectors")
+stdoutHandler = logging.StreamHandler(stream=sys.stdout)
+fmt = logging.Formatter(
+    "%(name)s: %(asctime)s | %(levelname)s | %(filename)s:%(lineno)s | %(process)d >>> %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%SZ",
+)
+stdoutHandler.setFormatter(fmt)
+logger.addHandler(stdoutHandler)
+logger.setLevel(logging.DEBUG)
+
 class PhaseDetector():
     def __init__(self, 
                  model_to_load, 
@@ -31,9 +41,9 @@ class PhaseDetector():
 
     def __init_model(self, num_channels, model_to_load):
         self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
-        logging.info(f"Initialized {num_channels} comp unet with {self.get_n_params()} params...")
+        logger.info(f"Initialized {num_channels} comp unet with {self.get_n_params()} params...")
         assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
-        logging.info("Loading model:", model_to_load)
+        logger.info(f"Loading model: {model_to_load}")
         check_point = torch.load(model_to_load)
         self.unet.load_state_dict(check_point['model_state_dict'])
         self.unet.eval()
@@ -88,13 +98,14 @@ class PhaseDetector():
     @staticmethod
     def save_post_probs(outfile, post_probs, stats):
         assert post_probs.shape[0] == stats['npts'], "posterior probability is the wrong shape"
+        logger.debug("writing %s", outfile)
         st = obspy.Stream()
         tr = obspy.Trace()
         tr.data = (post_probs*100).astype(np.int16)
         tr.stats = Stats(stats)
         st += tr
         st.write(outfile, format="MSEED")
-
+        
     @staticmethod
     def trim_post_probs(post_probs, start_pad, end_pad, edge_n_samples):
         assert len(post_probs.shape) == 1, "Post probs need to be flattened before trimming"
@@ -117,7 +128,7 @@ class PhaseDetector():
         post_prob_name = f"probs.{phase_type}__{os.path.basename(wf_filename)}"
 
         if not os.path.exists(dir):
-            logging.info(f"Making directory {dir}")
+            logger.info(f"Making directory {dir}")
             os.mkdir(dir)
 
         outfile = os.path.join(dir, post_prob_name)
@@ -281,7 +292,7 @@ class DataLoader():
                 self.metadata['previous_appended'] = True
             else:
                 # TODO: Do something here, like "interpolate" if the traces are close enough
-                logging.warning('Cannot concatenate previous days data, data is not continuous')
+                logger.warning('Cannot concatenate previous days data, data is not continuous')
 
     def reset_loader(self):
         if self.store_N_seconds > 0 and self.continuous_data is not None:
@@ -343,6 +354,7 @@ class DataLoader():
         tupple: (Obspy Stream, list of gaps)
         """ 
 
+        logger.debug("loading %s", file)
         # use obspy to load the miniseed file(s)
         st = obspy.read(file)
 
@@ -360,7 +372,7 @@ class DataLoader():
         total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
         max_npts = expected_file_duration_s*round(sampling_rate)
         if (total_npts/max_npts)*100 < min_signal_percent:
-            logging.warning(f"{os.path.basename(file)} does not have enough data, skipping")
+            logger.warning(f"{os.path.basename(file)} does not have enough data, skipping")
             # Return the entire file period as a gap
             return None, [self.format_edge_gaps(st, desired_start, desired_end, entire_file=True)]
 
@@ -374,7 +386,7 @@ class DataLoader():
             try:
                 st.merge(fill_value='interpolate')
             except:
-                logging.info("Caught obspy Incompatible Traces warning. Fixing the sampling rates...")
+                logger.info("Caught obspy Incompatible Traces warning. Fixing the sampling rates...")
                 delta = round(1/sampling_rate, 3)
 
                 for tr in st:
@@ -432,7 +444,9 @@ class DataLoader():
                 gap_dict[key] = gap_dict[key].isoformat()
 
         gap_dict['gaps'] = all_gap_info
-        with open(os.path.join(dir, filename), 'w') as fp:
+        outpath = os.path.join(dir, filename)
+        logger.debug("writing %s", outpath)
+        with open(outpath, 'w') as fp:
             json.dump(gap_dict, fp, sort_keys=True, 
                       indent=4, ensure_ascii=False)
 
@@ -562,7 +576,7 @@ class DataLoader():
         #     post_prob_name = f"{split[0][0:-1]}__{split[1]}__{split[3]}.json"
 
         if not os.path.exists(dir):
-            logging.info(f"Making directory {dir}")
+            logger.info(f"Making directory {dir}")
             os.mkdir(dir)
 
         outfile = os.path.join(dir, post_prob_name)
