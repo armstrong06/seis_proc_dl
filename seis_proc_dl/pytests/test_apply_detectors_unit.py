@@ -9,6 +9,243 @@ import json
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files'
 models_path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/selected_models"
 
+class TestApplyDetector():
+    def __init__(self) -> None:
+        self.outdir = f"{examples_dir}/applydetector_results"
+        self.config = {"paths":{
+                    "data_dir":examples_dir,
+                    "output_dir":self.outdir,
+                    "one_comp_p_model":f"{models_path}/oneCompPDetectorMEW_model_022.pt",
+                    "three_comp_p_model":f"{models_path}/pDetectorMew_model_026.pt",
+                    "three_comp_s_model":f"{models_path}/sDetector_model032.pt",
+                    }, 
+                 "unet":{
+                     "window_length":1008,
+                     "sliding_interval":500,
+                     "device":"cpu",
+                     "min_torch_threads":2,
+                     "min_presigmoid_value":-70,
+                     "batchsize":256,
+                 },
+                 "dataloader":{
+                     "store_N_seconds":10,
+                     #"expected_file_duration_s":3600,
+                     "min_signal_percent":0,
+                 }}
+         
+    def test_init_1c(self):
+        applier = apply_detectors.ApplyDetector(1, self.config)
+        assert applier.data_dir == examples_dir
+        assert applier.outdir == f"{examples_dir}/applydetector_results"
+        assert applier.window_length == 1008
+        assert applier.sliding_interval == 500
+        assert applier.center_window == 250
+        assert applier.window_edge_npts == 254
+        assert applier.device == "cpu"
+        assert applier.min_presigmoid_value == -70
+        assert applier.min_torch_threads == 2
+        assert applier.p_model_file == f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        assert applier.s_model_file == None
+        assert applier.dataloader.store_N_seconds == 10
+        assert applier.p_detector.device.type == "cpu"
+        assert applier.p_detector.num_channels == 1
+        assert applier.p_detector.min_presigmoid_value == -70
+        assert applier.p_detector.unet is not None
+        assert applier.p_detector.get_n_params() == 10818241
+        assert applier.p_detector.phase_type == "P"
+        assert applier.s_detector == None
+        assert applier.p_proc_func.__qualname__ == "DataLoader.process_1c_P"
+        assert applier.ncomps == 1
+        assert applier.batchsize == 256
+        assert applier.min_signal_percent == 0
+        #assert applier.expected_file_duration_s == 3600
+
+    def test_init_3c(self):
+        applier = apply_detectors.ApplyDetector(3, self.config)
+        assert applier.data_dir == examples_dir
+        assert applier.outdir == f"{examples_dir}/applydetector_results"
+        assert applier.window_length == 1008
+        assert applier.sliding_interval == 500
+        assert applier.center_window == 250
+        assert applier.window_edge_npts == 254
+        assert applier.device == "cpu"
+        assert applier.min_presigmoid_value == -70
+        assert applier.min_torch_threads == 2
+        assert applier.p_model_file == f"{models_path}/pDetectorMew_model_026.pt"
+        assert applier.s_model_file == f"{models_path}/sDetector_model032.pt"
+        assert applier.dataloader.store_N_seconds == 10
+        assert applier.p_detector.device.type == "cpu"
+        assert applier.p_detector.num_channels == 3
+        assert applier.p_detector.min_presigmoid_value == -70
+        assert applier.p_detector.unet is not None
+        assert applier.p_detector.get_n_params() == 10818625
+        assert applier.s_detector.unet is not None
+        assert applier.p_detector.phase_type == "P"
+        assert applier.s_detector.get_n_params() == 10818625
+        assert applier.s_detector.phase_type == "S"
+        assert applier.p_proc_func.__qualname__ == "DataLoader.process_3c_P"
+        assert applier.ncomps == 3
+        assert applier.batchsize == 256
+        assert applier.min_signal_percent == 0
+        #assert applier.expected_file_duration_s == 3600
+
+    def test_apply_to_file_day_1c(self):
+        applier = apply_detectors.ApplyDetector(1, self.config)
+        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+                                  examples_dir,
+                                  debug_N_examples=256)
+        
+        expected_p_probs_file = f"{self.outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() >= 0 
+        assert probs_st[0].stats.station == "YWB"
+        assert not os.path.exists(f"{examples_dir}/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+        expected_json_file = f"{self.outdir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # TODO: Add remove to other tests that create files
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_file_day_3c(self):
+        applier = apply_detectors.ApplyDetector(3, self.config)
+        files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
+        applier.apply_to_one_file(files,
+                                  examples_dir,
+                                  debug_N_examples=256)
+        
+        # P Probs - 3c name should have E or 1 channel
+        expected_p_probs_file = f"{self.outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        # S Probs - 3c name should have E or 1 channel
+        expected_s_probs_file = f"{self.outdir}/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_s_probs_file)
+        probs_st = obspy.read(expected_s_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        # Meta data file - 3c name should have E or 1 channel
+        expected_json_file = f"{self.outdir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_1c(self):
+        applier = apply_detectors.ApplyDetector(1, self.config)
+        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 1, 2, debug_N_examples=256)
+        
+        # Day 1
+        expected_p_probs_file = f"{self.outdir}/2002/01/01/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() >= 0 
+        assert probs_st[0].stats.station == "YWB"
+        assert not os.path.exists(f"{self.outdir}/2002/01/01/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+        expected_json_file = f"{self.outdir}/2002/01/01/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{self.outdir}/2002/01/02/probs.P__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() >= 0 
+        assert probs_st[0].stats.station == "YWB"
+        assert not os.path.exists(f"{self.outdir}/2002/01/02/probs.S__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed")
+        expected_json_file = f"{self.outdir}/2002/01/02/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_3c(self):
+        applier = apply_detectors.ApplyDetector(3, self.config)
+        applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 1, 2, debug_N_examples=256)
+        
+        # Day 1
+        # P Probs
+        expected_p_probs_file = f"{self.outdir}/2002/01/01/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        
+        # S probs
+        expected_s_probs_file = f"{self.outdir}/2002/01/01/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_s_probs_file)
+        probs_st = obspy.read(expected_s_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        
+        # Json File
+        expected_json_file = f"{self.outdir}/2002/01/01/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{self.outdir}/2002/01/02/probs.P__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+
+        # S Probs
+        expected_s_probs_file = f"{self.outdir}/2002/01/02/probs.S__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_s_probs_file)
+        probs_st = obspy.read(expected_s_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"        
+        
+        # Json File
+        expected_json_file = f"{self.outdir}/2002/01/02/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
 class TestDataLoader():
 
     def test_load_data_different_sampling_rate_issue(self):
@@ -906,10 +1143,18 @@ class TestPhaseDetector():
         assert os.path.basename(outfile) == 'probs.P__WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         assert os.path.dirname(outfile) == examples_dir        
 
+    # TODO: Implement this
+    def test_get_continous_post_probs(self):
+        pass
 if __name__ == '__main__':
-    from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
-    dltester = TestDataLoader()
-    dltester.test_make_outfile_name_1c()
+    from seis_proc_dl.pytests.test_apply_detectors_unit import TestApplyDetector
+    dltester = TestApplyDetector()
+    dltester.test_apply_to_multiple_days_3c()
+  
+
+    # from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
+    # dltester = TestDataLoader()
+    # dltester.test_make_outfile_name_1c()
   
     # from seis_proc_dl.pytests.test_apply_detectors_unit import TestPhaseDetector
     # pdtester = TestPhaseDetector()

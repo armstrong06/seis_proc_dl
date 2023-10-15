@@ -9,11 +9,16 @@ import re
 # TODO: Better way to import pyuussmlmodels than adding path?
 import sys
 import json
+import datetime
+import glob
 sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
 import pyuussmlmodels
 from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
 from seis_proc_dl.detectors.models.unet_model import UNetModel
+from seis_proc_dl.utils.config_apply_detectors import Config
 
+# Followed this tutorial https://betterstack.com/community/guides/logging/how-to-start-logging-with-python/
+# Just a simple logger for now
 logger = logging.getLogger("apply_detectors")
 stdoutHandler = logging.StreamHandler(stream=sys.stdout)
 fmt = logging.Formatter(
@@ -24,14 +29,195 @@ stdoutHandler.setFormatter(fmt)
 logger.addHandler(stdoutHandler)
 logger.setLevel(logging.DEBUG)
 
+class ApplyDetector():
+    def __init__(self, 
+                 ncomps, 
+                 config
+                 ) -> None:
+        
+        self.p_detector = None
+        self.s_detector = None
+        self.p_proc_func = None
+        self.ncomps = ncomps
+        config = Config.from_json(config)
+        self.dataloader = DataLoader(config.dataloader.store_N_seconds)
+        self.data_dir = config.paths.data_dir
+        self.outdir = config.paths.output_dir
+        self.window_length = config.unet.window_length
+        self.sliding_interval = config.unet.sliding_interval
+        self.center_window = self.sliding_interval//2
+        self.window_edge_npts = (self.window_length-self.sliding_interval)//2
+        self.device = config.unet.device
+        self.min_torch_threads = config.unet.min_torch_threads
+        self.min_presigmoid_value = config.unet.min_presigmoid_value
+        self.batchsize = config.unet.batchsize
+        #self.expected_file_duration_s = config.dataloader.expected_file_duration_s
+        self.min_signal_percent = config.dataloader.min_signal_percent
+
+        if ncomps == 1:
+            self.p_model_file = config.paths.one_comp_p_model
+            self.s_model_file = None
+            self.__init_1c()
+        elif ncomps == 3:
+            self.p_model_file = config.paths.three_comp_p_model
+            self.s_model_file = config.paths.three_comp_s_model
+            if self.s_model_file is None:
+                raise ValueError("S Detector cannot be None for 3C")
+            self.__init_3c()
+        else:
+            raise ValueError("Invalid number of components")
+
+    ### Constructor without config ###
+    # def __init__(self, 
+    #              ncomps, 
+    #              data_dir,
+    #              p_model_file, 
+    #              s_model_file=None,
+    #              window_length=1008,
+    #              sliding_interval=500,
+    #              device='cpu',
+    #              min_torch_threads=2,
+    #              min_presigmoid_value=-70
+    #              ) -> None:
+        
+    #     self.dataloader = DataLoader()
+    #     self.p_detector = None
+    #     self.s_detector = None
+    #     self.p_proc_func = None
+
+    #     self.data_dir = data_dir
+    #     self.p_model_file = p_model_file
+    #     self.s_model_file = s_model_file
+    #     self.window_length = window_length
+    #     self.sliding_interval = sliding_interval
+    #     self.center_window = sliding_interval//2
+    #     self.window_edge_npts = (window_length-sliding_interval)//2
+    #     self.device = device
+    #     self.min_torch_threads = min_torch_threads
+    #     self.min_presigmoid_value = min_presigmoid_value
+
+    #     if ncomps == 1:
+    #         self.__init_1c()
+    #     elif ncomps == 3:
+    #         if s_model_file is None:
+    #             raise ValueError("S Detector cannot be None for 3C")
+    #         self.__init_3c()
+    #     else:
+    #         raise ValueError("Invalid number of components")
+
+    def __init_1c(self):
+        self.p_detector = PhaseDetector(self.p_model_file,
+                            1,
+                            "P",
+                            min_presigmoid_value=self.min_presigmoid_value,
+                            device=self.device,
+                            num_torch_threads=self.min_torch_threads)
+        self.p_proc_func = self.dataloader.process_1c_P
+
+    def __init_3c(self):
+        self.p_detector = PhaseDetector(self.p_model_file,
+                            3,
+                            "P",
+                            min_presigmoid_value=self.min_presigmoid_value,
+                            device=self.device,
+                            num_torch_threads=self.min_torch_threads)
+        
+        self.s_detector = PhaseDetector(self.s_model_file,
+                            3,
+                            "S",
+                            min_presigmoid_value=self.min_presigmoid_value,
+                            device=self.device,
+                            num_torch_threads=self.min_torch_threads)
+        self.p_proc_func = self.dataloader.process_3c_P
+
+    def apply_to_multiple_days(self, stat, chan, year, month, day, n_days, debug_N_examples=-1):
+        
+        assert year >= 2002 and year <= 2022, "Year is invalid"
+        assert month > 0 and month < 13, "Month is invalid"
+        assert day > 0 and day <= 31, "Day is invalid"
+        assert n_days > 0, "Number of days is invalid"
+
+        ### Set the start date and time increment of the files ###
+        date = datetime.date(year, month, day)
+        delta = datetime.timedelta(days=1)
+
+        ### Iterate over the specified number of days ###
+        for _ in range(n_days):
+            ### The data files are organized Y/m/d, get the appropriate date/station files ###
+            date_str = date.strftime("%Y/%m/%d")
+            files = glob.glob(os.path.join(self.data_dir, date_str, f'*{stat}*{chan}*'))
+
+            ### Make the output dirs have the same structure as the data dirs ###
+            date_outdir = os.path.join(self.outdir, date_str)
+
+            ### If there are no files for that station/day, move to the next day ###
+            if len(files) == 0:
+                logger.info(f'No data for {date_str} {stat} {chan}')
+                continue
+            elif (self.ncomps == 1 and len(files) != 1) or (self.ncomps ==3 and len(files) != 3):
+                logger.warning(f"Incorrect number of files found for {date_str} {stat} {chan}")
+                continue 
+
+            self.apply_to_one_file(files, date_outdir, debug_N_examples=debug_N_examples)
+
+            date += delta
+
+    def apply_to_one_file(self, files, outdir, debug_N_examples=-1):
+        if self.ncomps == 1:
+            self.dataloader.load_1c_data(files[0], 
+                                         min_signal_percent=self.min_signal_percent,)
+                                         #expected_file_duration_s=self.expected_file_duration_s)
+        else:
+            self.dataloader.load_3c_data(files[0], files[1], files[2], 
+                                         min_signal_percent=self.min_signal_percent,)
+                                         #expected_file_duration_s=self.expected_file_duration_s)
+        self.__apply_to_one_phase(self.p_detector, self.p_proc_func, 
+                                  files[0], outdir, debug_N_examples=debug_N_examples)
+
+        if self.ncomps == 3:
+            self.__apply_to_one_phase(self.s_detector, self.dataloader.process_3c_S, 
+                                      files[0], outdir, debug_N_examples=debug_N_examples)
+
+        ### Save the station meta info (including gaps) to a file in the same dir as the post probs. ###
+        ### Only need one file per station/day pair ###
+        meta_outfile_name =  self.dataloader.make_outfile_name(files[0], outdir)
+        self.dataloader.write_data_info(meta_outfile_name)
+
+    def __apply_to_one_phase(self, detector, proc_func, file_for_name, outdir, debug_N_examples=-1):
+        data, start_pad_npts, end_pad_npts = self.dataloader.format_continuous_for_unet(self.window_length,
+                                                            self.sliding_interval,
+                                                            proc_func,
+                                                            normalize=True
+                                                            )
+        probs_outfile_name = detector.make_outfile_name(file_for_name, outdir)
+
+        if debug_N_examples > 0:
+            logger.debug("Reducing data to %d examples", debug_N_examples)
+            data = data[0:debug_N_examples, :, :]
+            # Update npts so an error does not get thrown in save_post_probs
+            self.dataloader.metadata['npts'] = int(debug_N_examples*self.center_window*2)
+            # Ensure don't trim the post probs 
+            start_pad_npts, end_pad_npts = self.window_edge_npts, self.window_edge_npts
+
+        cont_post_probs = detector.get_continuous_post_probs(data, 
+                                                            self.center_window,
+                                                            self.window_edge_npts,
+                                                            batchsize = self.batchsize,
+                                                            start_pad_npts=start_pad_npts, 
+                                                            end_pad_npts=end_pad_npts)
+        
+        detector.save_post_probs(probs_outfile_name, cont_post_probs, self.dataloader.metadata)
+
 class PhaseDetector():
     def __init__(self, 
                  model_to_load, 
                  num_channels, 
+                 phase_type,
                  min_presigmoid_value=None, 
                  device="cpu",
                  num_torch_threads=2):
         #warnings.simplefilter("ignore")
+        self.phase_type = phase_type
         torch.set_num_threads(num_torch_threads)
         self.unet = None
         self.device = torch.device(device)
@@ -41,7 +227,7 @@ class PhaseDetector():
 
     def __init_model(self, num_channels, model_to_load):
         self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
-        logger.info(f"Initialized {num_channels} comp unet with {self.get_n_params()} params...")
+        logger.info(f"Initialized {num_channels} comp {self.phase_type} unet with {self.get_n_params()} params...")
         assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
         logger.info(f"Loading model: {model_to_load}")
         check_point = torch.load(model_to_load)
@@ -91,6 +277,30 @@ class PhaseDetector():
         # Not going to flatten the post probs here, in case the center window is not used 
         return post_probs
     
+    def get_continuous_post_probs(self, input, center_window, window_edge_npts, 
+                                  batchsize=256, start_pad_npts=0, end_pad_npts=0):
+        """Wrapper function to get the continuous posterior probabilities when using a sliding window  
+
+        Args:
+            input (_type_): _description_
+            center_window (_type_): _description_
+            window_edge_npts (_type_): _description_
+            batchsize (int, optional): _description_. Defaults to 256.
+            start_pad_npts (int, optional): _description_. Defaults to 0.
+            end_pad_npts (int, optional): _description_. Defaults to 0.
+
+        Returns:
+            _type_: _description_
+        """
+        unet_output = self.apply_to_continuous(input, center_window=center_window, batchsize=batchsize)
+        cont_post_probs = self.flatten_model_output(unet_output)
+        cont_post_probs = self.trim_post_probs(cont_post_probs, 
+                                                start_pad_npts, 
+                                                end_pad_npts,
+                                                window_edge_npts)
+
+        return cont_post_probs
+
     @staticmethod
     def flatten_model_output(post_probs):
         return post_probs.flatten()
@@ -109,6 +319,11 @@ class PhaseDetector():
     @staticmethod
     def trim_post_probs(post_probs, start_pad, end_pad, edge_n_samples):
         assert len(post_probs.shape) == 1, "Post probs need to be flattened before trimming"
+        
+        # TODO: Remove this eventually => checking if I will ever actually need to call this fn
+        if start_pad != 254 or end_pad != 254:
+            logger.debug("Padding does not equal 254")
+
         npts = post_probs.shape[0]
         # Start trim should always be edge_samples
         start_ind = np.max([0, start_pad-edge_n_samples])
@@ -117,19 +332,18 @@ class PhaseDetector():
 
         return post_probs[start_ind:end_ind]
 
-    @staticmethod
-    def make_outfile_name(wf_filename, dir, phase_type):
+    def make_outfile_name(self, wf_filename, dir):
         # split = re.split(r"__|T", os.path.basename(wf_filename))
         # chan = "Z"
         # if self.num_channels > 1:
         #     chan = ""
-        # post_prob_name = f"probs.{phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
+        # post_prob_name = f"probs.{self.phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
 
-        post_prob_name = f"probs.{phase_type}__{os.path.basename(wf_filename)}"
+        post_prob_name = f"probs.{self.phase_type}__{os.path.basename(wf_filename)}"
 
         if not os.path.exists(dir):
-            logger.info(f"Making directory {dir}")
-            os.mkdir(dir)
+            logger.debug(f"Making directory {dir}")
+            os.makedirs(dir)
 
         outfile = os.path.join(dir, post_prob_name)
 
@@ -145,16 +359,27 @@ class DataLoader():
         self.previous_endtime = None
         self.store_N_seconds = store_N_seconds
 
-    def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1):
+    def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1, expected_file_duration_s=86400):
 
         self.reset_loader()
 
+        # assert np.isin(re.split( "[.|__]", os.path.basename(fileE))[3], ["EHE", "EH1", "BHE", "BH1", "HHE"]), "E file is incorrect"
+        # assert np.isin(re.split( "[.|__]", os.path.basename(fileN))[3], ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
+        # assert np.isin(re.split( "[.|__]", os.path.basename(fileZ))[3], ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
+
         st_E, gaps_E = self.load_channel_data(fileE, 
-                                              min_signal_percent=min_signal_percent)
+                                              min_signal_percent=min_signal_percent,
+                                              expected_file_duration_s=expected_file_duration_s)
         st_N, gaps_N = self.load_channel_data(fileN, 
-                                              min_signal_percent=min_signal_percent)
+                                              min_signal_percent=min_signal_percent,
+                                              expected_file_duration_s=expected_file_duration_s)
         st_Z, gaps_Z = self.load_channel_data(fileZ, 
-                                              min_signal_percent=min_signal_percent)
+                                              min_signal_percent=min_signal_percent,
+                                              expected_file_duration_s=expected_file_duration_s)
+
+        assert np.isin(st_E[0].stats.channel, ["EHE", "EH1", "BHE", "BH1", "HHE"]), "E file is incorrect"
+        assert np.isin(st_N[0].stats.channel, ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
+        assert np.isin(st_Z[0].stats.channel, ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
 
         # If one of the channels was skipped, return the entire day as a gap
         #TODO: IF the vertical comp still has enough signal, should I keep it?
@@ -202,12 +427,13 @@ class DataLoader():
         if self.store_N_seconds > 0:
             self.prepend_previous_data()
 
-    def load_1c_data(self, file, min_signal_percent=1):
+    def load_1c_data(self, file, min_signal_percent=1, expected_file_duration_s=86400):
 
         self.reset_loader()
 
         st, gaps = self.load_channel_data(file, 
-                                              min_signal_percent=min_signal_percent)
+                                              min_signal_percent=min_signal_percent,
+                                              expected_file_duration_s=expected_file_duration_s)
         if st is None:
             self.gaps = gaps
             self.reset_previous_day()
@@ -360,6 +586,8 @@ class DataLoader():
 
         sampling_rate = round(st[0].stats.sampling_rate)
         # TODO: this only works for days, not hours - fine for me
+        if expected_file_duration_s != 24*60*60:
+            raise NotImplementedError("DataLoader only works for day long files at the moment...")
         starttime = st[0].stats.starttime
         desired_start = UTC(starttime.year, starttime.month, starttime.day)
         desired_end = desired_start + expected_file_duration_s
@@ -413,7 +641,7 @@ class DataLoader():
 
         return st, gaps 
 
-    def write_data_info(self, filename, dir):
+    def write_data_info(self, outpath):
         """Write the trace metadata and gap information to a json file. For each gap, 
         there is a list containing the channel of the gap, the gap starttime and endtime in epoch format, the duration of 
         the gap in samples, and the sample corresponding to the start and end of the gap in 
@@ -444,7 +672,7 @@ class DataLoader():
                 gap_dict[key] = gap_dict[key].isoformat()
 
         gap_dict['gaps'] = all_gap_info
-        outpath = os.path.join(dir, filename)
+        #outpath = os.path.join(dir, filename)
         logger.debug("writing %s", outpath)
         with open(outpath, 'w') as fp:
             json.dump(gap_dict, fp, sort_keys=True, 
@@ -569,15 +797,15 @@ class DataLoader():
     
     @staticmethod
     def make_outfile_name(wf_filename, dir):
-        post_prob_name = f'{wf_filename.split(".mseed")[0]}.json'
+        post_prob_name = f'{os.path.basename(wf_filename).split(".mseed")[0]}.json'
 
         # if num_channels > 1:
         #     split = re.split(r"__|T", os.path.basename(wf_filename))
         #     post_prob_name = f"{split[0][0:-1]}__{split[1]}__{split[3]}.json"
 
         if not os.path.exists(dir):
-            logger.info(f"Making directory {dir}")
-            os.mkdir(dir)
+            logger.debug(f"Making directory {dir}")
+            os.makedirs(dir)
 
         outfile = os.path.join(dir, post_prob_name)
 
