@@ -34,7 +34,17 @@ class ApplyDetector():
                  ncomps, 
                  config
                  ) -> None:
-        
+        """Use DataLoader and PhaseDetector to load and apply detectors to day chunks of seismic data.
+
+        Args:
+            ncomps (int): The number of components for the phase detector and data (1 or 3).
+            config (object): dictionary defining information needed for the PhaseDetector and DataLoader,
+            and path information
+
+        Raises:
+            ValueError: _description_
+            ValueError: _description_
+        """
         self.p_detector = None
         self.s_detector = None
         self.p_proc_func = None
@@ -106,6 +116,8 @@ class ApplyDetector():
     #         raise ValueError("Invalid number of components")
 
     def __init_1c(self):
+        """Initialize the phase detector for 1 component P picker
+        """
         self.p_detector = PhaseDetector(self.p_model_file,
                             1,
                             "P",
@@ -115,6 +127,8 @@ class ApplyDetector():
         self.p_proc_func = self.dataloader.process_1c_P
 
     def __init_3c(self):
+        """Initialize the phase detectors for 3C P and S detectors
+        """
         self.p_detector = PhaseDetector(self.p_model_file,
                             3,
                             "P",
@@ -131,6 +145,20 @@ class ApplyDetector():
         self.p_proc_func = self.dataloader.process_3c_P
 
     def apply_to_multiple_days(self, stat, chan, year, month, day, n_days, debug_N_examples=-1):
+        """Apply the phase detector to multiple days of data for a single station/channel. Assumes data
+        is stored in YYYY/MM/DD folder in the data directory specified in the config file. Writes output
+        to YYYY/MM/DD folder in the output directory specified in the config file.
+
+        Args:
+            stat (str): Station name
+            chan (str): Channel name, for 3C use "?" for the orientation or omit (e.g. HH? or HH)
+            year (int): Year of start date
+            month (int): month of start date
+            day (int): date of start date
+            n_days (int): number of days to iterate over
+            debug_N_examples (int, optional): Number of waveform segments to pass to the phase detector, use 
+            all inputs if -1. Defaults to -1.
+        """
         
         assert year >= 2002 and year <= 2022, "Year is invalid"
         assert month > 0 and month < 13, "Month is invalid"
@@ -163,6 +191,17 @@ class ApplyDetector():
             date += delta
 
     def apply_to_one_file(self, files, outdir=None, debug_N_examples=-1):
+        """Process one miniseed file and write posterior probability and data information to disk. Runs both 
+        the P and S detector for 3C data and just the P detector for 1C data. The output file names will contain the
+        E/1 channel name for 3C data and the Z channel name for 1C.
+
+        Args:
+            files (list): The miniseed files to read in. Should contain 1 string for 1C and 3 for 3C - order E, N, Z. 
+            outdir (str/path, optional): Directory to write to. If None, uses the output directory specified 
+            in the config file. Defaults to None.
+            debug_N_examples (int, optional): Number of waveform segments to pass to the phase detector, use 
+            all inputs if -1. Defaults to -1.
+        """
         if outdir is None:
             outdir = self.outdir
             
@@ -187,11 +226,22 @@ class ApplyDetector():
         self.dataloader.write_data_info(meta_outfile_name)
 
     def __apply_to_one_phase(self, detector, proc_func, file_for_name, outdir, debug_N_examples=-1):
+        """Format continuous data and apply phase detector. Write posterior probabilities to disk.
+
+        Args:
+            detector (object): Initialized PhaseDetector with the appropriate model loaded.
+            proc_func (object): The processing function to use when processing each waveform segment.
+            file_for_name (str): Input file name used to derive the posterior probability output file name.
+            outdir (str): Specify the directory to save the posterior probabilities to.
+            debug_N_examples (int, optional):  Number of waveform segments to pass to the phase detector, use 
+            all inputs if -1. Defaults to -1.
+        """
         data, start_pad_npts, end_pad_npts = self.dataloader.format_continuous_for_unet(self.window_length,
                                                             self.sliding_interval,
                                                             proc_func,
                                                             normalize=True
                                                             )
+
         probs_outfile_name = detector.make_outfile_name(file_for_name, outdir)
 
         if debug_N_examples > 0:
@@ -219,6 +269,17 @@ class PhaseDetector():
                  min_presigmoid_value=None, 
                  device="cpu",
                  num_torch_threads=2):
+        """Load and apply UNet phase detectors. Save the posterior probabilities to disk.
+
+        Args:
+            model_to_load (str): File path to model weights to load. 
+            num_channels (int): The number of input channels for the model (1 or 3).
+            phase_type (str): The intended phase type of the model (P or S).
+            min_presigmoid_value (int, optional): Value to clamp the output of the model prior to the sigmoid function.
+             Goal is to help stabilize the model output. Defaults to None.
+            device (str, optional): Name of the device for Pytorch to use. Defaults to "cpu".
+            num_torch_threads (int, optional): Number of threads for Pytorch to use. Defaults to 2.
+        """
         #warnings.simplefilter("ignore")
         self.phase_type = phase_type
         torch.set_num_threads(num_torch_threads)
@@ -229,6 +290,12 @@ class PhaseDetector():
         self.num_channels = num_channels
 
     def __init_model(self, num_channels, model_to_load):
+        """Load the model weights and put in eval mode.
+
+        Args:
+            num_channels (int): Number of input channels for the model.
+            model_to_load (str): Path to the model weights.
+        """
         self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
         logger.info(f"Initialized {num_channels} comp {self.phase_type} unet with {self.get_n_params()} params...")
         assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
@@ -238,6 +305,18 @@ class PhaseDetector():
         self.unet.eval()
 
     def apply_model_to_batch(self, X, lsigmoid=True, center_window=None):
+        """Apply the UNet to one batch of data
+
+        Args:
+            X (np.array): Input to model, shape should be B x S x C.
+            lsigmoid (bool, optional): Applies the sigmoid function to the model output if True. 
+            Defaults to True.
+            center_window (int, optional): Number of samples (W) on either side of the center of the model output to 
+            return. Used with sliding windows. If None, returns all S samples. Defaults to None.
+
+        Returns:
+            np.array: Posterior probabilities in shape (B x S) or (B x W).
+        """
         n_samples = X.shape[1] 
         X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.device)
         
@@ -261,10 +340,22 @@ class PhaseDetector():
         return Y_est.to('cpu').detach().numpy()
 
     def get_n_params(self):
+        """ Get the number of trainable parameters in the model"""
         return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
 
-    def apply_to_continuous(self, continuous, batchsize=256, center_window=None):
-        n_examples, n_samples, n_channels = continuous.shape
+    def apply(self, input, batchsize=256, center_window=None):
+        """Apply the UNet to batches of data.
+
+        Args:
+            input (np.array): Data to apply model to. In format N x S x C. 
+            batchsize (int, optional): Batch size to use. Defaults to 256.
+            center_window (int, optional): Number of samples (W) on either side of the center of the model output to 
+            return. Used with sliding windows. If None, returns all S samples. Defaults to None.
+
+        Returns:
+            np.array: Posterior probabilities in shape (N x S) or (N x W).
+        """
+        n_examples, n_samples, n_channels = input.shape
         if center_window is not None:
             n_samples = center_window*2
         # model output is N x S
@@ -272,7 +363,7 @@ class PhaseDetector():
         batch_start = 0
         while batch_start < n_examples:
             batch_end = np.min([batch_start+batchsize, n_examples])
-            batch = continuous[batch_start:batch_end, :, :]
+            batch = input[batch_start:batch_end, :, :]
 
             post_probs[batch_start:batch_end, :] = self.apply_model_to_batch(batch, center_window=center_window)
 
@@ -285,17 +376,21 @@ class PhaseDetector():
         """Wrapper function to get the continuous posterior probabilities when using a sliding window  
 
         Args:
-            input (_type_): _description_
-            center_window (_type_): _description_
-            window_edge_npts (_type_): _description_
-            batchsize (int, optional): _description_. Defaults to 256.
-            start_pad_npts (int, optional): _description_. Defaults to 0.
-            end_pad_npts (int, optional): _description_. Defaults to 0.
+            input (np.array): Data to apply model to. In format N x S x C.
+            center_window (int): Number of samples (W) on either side of the center of the model output to 
+            return. Used with sliding windows. If None, returns all S samples.
+            window_edge_npts (int): Number of points on either end of the center window. 
+            batchsize (int, optional):  Batch size to use. Defaults to 256.
+            start_pad_npts (int, optional): Number of samples added to the beginning of the input, 
+            which should not be returned. Defaults to 0.
+            end_pad_npts (int, optional): Number of samples added to the end of the input, 
+            which should not be returned. Defaults to 0.
 
         Returns:
-            _type_: _description_
+            np.array: Continuous posterior probabilities in shape (X, ). Where X is the number of points in the
+            continuous data.
         """
-        unet_output = self.apply_to_continuous(input, center_window=center_window, batchsize=batchsize)
+        unet_output = self.apply(input, center_window=center_window, batchsize=batchsize)
         cont_post_probs = self.flatten_model_output(unet_output)
         cont_post_probs = self.trim_post_probs(cont_post_probs, 
                                                 start_pad_npts, 
@@ -306,10 +401,26 @@ class PhaseDetector():
 
     @staticmethod
     def flatten_model_output(post_probs):
+        """Flatten the output of the model so the posterior probabilities are continuous. 
+
+        Args:
+            post_probs (np.array): Output of the model, shape (N x W)
+
+        Returns:
+            np.array: Flattened posterior probabilities in shape (X, ). X=NxW
+        """
         return post_probs.flatten()
 
     @staticmethod
     def save_post_probs(outfile, post_probs, stats):
+        """Write the continuous posterior probabilities to disk in miniseed format with 2 digits of precision.
+        Posterior probabilities will be between 0 and 99.
+
+        Args:
+            outfile (str): Path and name of the output file.
+            post_probs (np.array): Flattened (1D) posterior probabilities
+            stats (object): Dictionary object containing the station information, start time, and number of points.
+        """
         assert post_probs.shape[0] == stats['npts'], "posterior probability is the wrong shape"
         logger.debug("writing %s", outfile)
         st = obspy.Stream()
@@ -321,6 +432,18 @@ class PhaseDetector():
         
     @staticmethod
     def trim_post_probs(post_probs, start_pad, end_pad, edge_n_samples):
+        """Remove ends of the flattened posterior probabilities that correspond to padding in the input data.
+        Not totally sure if this function is needed in my code. 
+
+        Args:
+            post_probs (np.array): Flattened posterior probabilities in shape (X, )
+            start_pad (int): Number of samples added to the start of the input data.
+            end_pad (int): Number of samples added to the end of the input data.
+            edge_n_samples (int): Number of samples on either end of the center window. 
+
+        Returns:
+            np.array: Trimmed posterior probabilities - should be the same length as the unpadded input.
+        """
         assert len(post_probs.shape) == 1, "Post probs need to be flattened before trimming"
         
         # TODO: Remove this eventually => checking if I will ever actually need to call this fn
@@ -336,6 +459,16 @@ class PhaseDetector():
         return post_probs[start_ind:end_ind]
 
     def make_outfile_name(self, wf_filename, dir):
+        """Given an input file name, create the output path for the posterior probabilities.
+        Makes the output directory if it does not exist.
+
+        Args:
+            wf_filename (str): Input file name in format NET.STAT.LOC.CHAN__START__END.mseed
+            dir (str): Path to write the output file to. 
+
+        Returns:
+            str: Output path and filename. Filename in format probs.PHASE__NET.STAT.LOC.CHAN__START__END.mseed.
+        """
         # split = re.split(r"__|T", os.path.basename(wf_filename))
         # chan = "Z"
         # if self.num_channels > 1:
@@ -354,6 +487,13 @@ class PhaseDetector():
 
 class DataLoader():
     def __init__(self, store_N_seconds=0) -> None:
+        """Load day long miniseed files. Format and process for the PhaseDetector. Intended to be used for one
+        station/channel over multiple days.
+
+        Args:
+            store_N_seconds (int, optional): Number of seconds at the end of the current data to store for appending to 
+            the start of the next days data. Defaults to 0.
+        """
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
@@ -363,6 +503,17 @@ class DataLoader():
         self.store_N_seconds = store_N_seconds
 
     def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1, expected_file_duration_s=86400):
+        """Load miniseed files for a 3C station.
+
+        Args:
+            fileE (str): Path to the E/1 component file. 
+            fileN (str): Path to the N/2 component file. 
+            fileZ (str): Path to the Z component file. 
+            min_signal_percent (int, optional): Minimum percentage of signal that must be present in all channels.
+              Defaults to 1.
+            expected_file_duration_s (int, optional): The number of expected seconds in file. 
+            Only implemented for 86400. Defaults to 86400.
+        """
 
         self.reset_loader()
 
@@ -431,6 +582,15 @@ class DataLoader():
             self.prepend_previous_data()
 
     def load_1c_data(self, file, min_signal_percent=1, expected_file_duration_s=86400):
+        """Load miniseed file for a 1C station.
+
+        Args:
+            file (str): Path to the Z component file. 
+            min_signal_percent (int, optional): Minimum percentage of signal that must be present in all channels.
+              Defaults to 1.
+            expected_file_duration_s (int, optional): The number of expected seconds in file. 
+            Only implemented for 86400. Defaults to 86400.
+        """
 
         self.reset_loader()
 
@@ -456,6 +616,19 @@ class DataLoader():
             self.prepend_previous_data()
    
     def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None, normalize=True):
+        """Formats and processes the continuous data for input into a phase detector.
+
+        Args:
+            unet_window_length (int): The duration of the input to the model in samples.
+            unet_sliding_interval (int): The length of the sliding interval in samples.
+            processing_function (object, optional): The processing function to apply to each input of the model 
+            separately. Defaults to None.
+            normalize (bool, optional): Whether or not to normalize each input of the model. Defaults to True.
+
+        Returns:
+            tupple: (np.ndarray - Inputs for the phase detector (N x S x C), int - number of samples added to the start of the
+            data, int - number of samples added to the end of the data)
+        """
         # compute the indices for splitting the continuous data into model inputs
         npts, n_comps = self.continuous_data.shape
         # Always pad the start to avoid having to update the start time of the post probs
@@ -489,24 +662,53 @@ class DataLoader():
 
     @staticmethod
     def process_1c_P(wf, desired_sampling_rate=100):
+        """Wrapper around pyuussmlmodels 1C UNet preprocessing function for use in format_continuous_for_unet.
+
+        Args:
+            wf (np.array): 1, 1C waveform (S, 1)
+            desired_sampling_rate (int, optional): Desired sampling rate for wf. Defaults to 100.
+
+        Returns:
+            np.array: Processed wf (S, 1)
+        """
         assert wf.shape[1] == 1, "Incorrect number of channels"
         processor = pyuussmlmodels.Detectors.UNetOneComponentP.Preprocessing()
         processed = processor.process(wf[:, 0], sampling_rate=desired_sampling_rate)[:, None]
         return processed
     
     def process_3c_P(self, wfs, desired_sampling_rate=100):
+        """Wrapper around pyuussmlmodels 3C P UNet preprocessing function for use in format_continuous_for_unet.
+
+        Args:
+            wf (np.array): 1, 3C waveform (S, 3)
+            desired_sampling_rate (int, optional): Desired sampling rate for wf. Defaults to 100.
+
+        Returns:
+            np.array: Processed wf (S, 3)
+        """
         assert wfs.shape[1] == 3, "Incorrect number of channels"
         processor = pyuussmlmodels.Detectors.UNetThreeComponentP.Preprocessing()
         processed = self._process_3c(wfs, processor, desired_sampling_rate)
         return processed
    
     def process_3c_S(self, wfs, desired_sampling_rate=100):
+        """Wrapper around pyuussmlmodels 3C S UNet preprocessing function for use in format_continuous_for_unet.
+
+        Args:
+            wf (np.array): 1, 3C waveform (S, 3)
+            desired_sampling_rate (int, optional): Desired sampling rate for wf. Defaults to 100.
+
+        Returns:
+            np.array: Processed wf (S, 3)
+        """
         assert wfs.shape[1] == 3, "Incorrect number of channels"
         processor = pyuussmlmodels.Detectors.UNetThreeComponentS.Preprocessing()
         processed = self._process_3c(wfs, processor, desired_sampling_rate)
         return processed
     
     def prepend_previous_data(self):
+        """Add previous days data to the start of the current days data and update the metadata.
+        """
         current_starttime = self.metadata['starttime']
         if self.previous_continuous_data is not None:
             # The start of the current trace should be very close to the end of the previous trace
@@ -524,6 +726,8 @@ class DataLoader():
                 logger.warning('Cannot concatenate previous days data, data is not continuous')
 
     def reset_loader(self):
+        """Reset the current continuous data and it's metadata and update the stored previous data.
+        """
         if self.store_N_seconds > 0 and self.continuous_data is not None:
             # Update previous day
             store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
@@ -534,10 +738,19 @@ class DataLoader():
         self.gaps = None
 
     def reset_previous_day(self):
+        """Clear the data stored for the previous day.
+        """
         self.previous_continuous_data = None
         self.previous_endtime = None
 
     def store_meta_data(self, stats, three_channels=True):
+        """Store the relevant miniseed metadata for use later. The orientation of the 3C channel 
+        information is replaced with '?'.
+
+        Args:
+            stats (object): The Obspy Stats associated with the miniseed file
+            three_channels (bool, optional): True for 3 channels stations, False for 1 channel. Defaults to True.
+        """
         meta_data = {}
         meta_data['network'] = stats['network']
         meta_data['station'] = stats['station']
@@ -683,6 +896,17 @@ class DataLoader():
 
     @staticmethod
     def add_padding(data, start_pad_npts, end_pad_npts):
+        """Add padding to the ends of the continuous data. The first value is used to pad the front of the 
+        data and the last value is used to pad the end of the data.
+
+        Args:
+            data (np.array): Continuous data.
+            start_pad_npts (int): Number of samples to add to the start of the data.
+            end_pad_npts (int): Number of samples to add to the end of the data.
+
+        Returns:
+            np.array: Padded data.
+        """
         n_comps = data.shape[1]
         if start_pad_npts > 0:
             start_padding = np.full((start_pad_npts, n_comps), data[0, :])
@@ -714,6 +938,16 @@ class DataLoader():
     
     @staticmethod
     def _process_3c(wfs, processor, desired_sampling_rate=100):
+        """Process 3C data using pyuussmlmodels 3C UNet Preprocessing
+
+        Args:
+            wfs (np.array): Waveform to process (S, 3)
+            processor (object): The pyuussmlmodels function to use. 
+            desired_sampling_rate (int, optional): Desired sampling rate of the waveform. Defaults to 100.
+
+        Returns:
+            np.array: Processed waveform (S, 3)
+        """
         east = wfs[:, 0]
         north = wfs[:, 1]
         vert = wfs[:, 2]
@@ -727,6 +961,19 @@ class DataLoader():
 
     @staticmethod
     def get_padding(npts, unet_window_length, unet_sliding_interval, pad_start=True):
+        """Compute how much padding to add to either end of the data when using a sliding window so every window 
+        will be full and every sample of data will be in the central part of the window at some point.
+
+        Args:
+            npts (int): The original number of samples
+            unet_window_length (int): The length of the unet input in samples
+            unet_sliding_interval (int): the length of the sliding window to use
+            pad_start (bool, optional): Whether to pad the start or not. Defaults to True.
+
+        Returns:
+            tupple: (int - the total number of points after padding, int - the number of points to add to the start, 
+            int - the number of points to add to the end)
+        """
         # TODO: This edge_npts calc is not always right (works for my case though)
         # number points between the end of the center and the end of the window
         edge_npts = (unet_window_length-unet_sliding_interval)//2
@@ -752,11 +999,31 @@ class DataLoader():
 
     @staticmethod
     def get_sliding_window_start_inds(npts_padded, unet_window_length, unet_sliding_interval):
+        """Get the start indicies of sliding windows.
+
+        Args:
+            npts_padded (int): The total number of points after padding.
+            unet_window_length (int): The length of the unet input in samples
+            unet_sliding_interval (int): the length of the sliding window to use
+
+        Returns:
+            np.array: np array of the starting indicies
+        """
         return np.arange(0, npts_padded-unet_window_length+unet_sliding_interval, 
                          unet_sliding_interval)
 
     @staticmethod
     def get_n_windows(npts, window_length, sliding_interval):
+        """Count the number of sliding windows 
+
+        Args:
+            npts (_type_):  The total number of points after padding.
+            window_length (int): The length of the unet input in samples
+            sliding_interval (int): the length of the sliding window to use
+
+        Returns:
+            int: The number of sliding windows.
+        """
         return (npts-window_length)//sliding_interval + 1
     
     @staticmethod
@@ -800,6 +1067,16 @@ class DataLoader():
     
     @staticmethod
     def make_outfile_name(wf_filename, dir):
+        """Given an input file name, create the output path for the waveform metadata and gaps.
+        Makes the output directory if it does not exist.
+
+        Args:
+            wf_filename (str): Input file name in format NET.STAT.LOC.CHAN__START__END.mseed
+            dir (str): Path to write the output file to. 
+
+        Returns:
+            str: Output path and filename. Filename in format NET.STAT.LOC.CHAN__START__END.json.
+        """
         post_prob_name = f'{os.path.basename(wf_filename).split(".mseed")[0]}.json'
 
         # if num_channels > 1:
