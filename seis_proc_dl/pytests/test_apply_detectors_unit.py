@@ -108,7 +108,7 @@ class TestApplyDetector():
         with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
             json_dict = json.load(fp)
         assert json_dict['channel'] == "EHZ"        
-        # TODO: Add remove to other tests that create files
+
         os.remove(expected_p_probs_file)
         os.remove(expected_json_file)
 
@@ -233,7 +233,6 @@ class TestApplyDetector():
         os.remove(expected_s_probs_file)
         os.remove(expected_json_file)
 
-        #TODO: Check the starttime for second file
         # Day 2
         expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
@@ -1144,7 +1143,7 @@ class TestPhaseDetector():
         data = np.zeros((11, 1008, 1))
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
-        post_probs = pdet.apply_to_continuous(data, batchsize=2)
+        post_probs = pdet.apply(data, batchsize=2)
         assert post_probs.shape == (11, 1008)
         # Make sure there aren't any examples with all zeros (like they were skipped)
         assert len(np.unique(np.where(post_probs == np.zeros((1, 1008)))[0])) == 0
@@ -1153,7 +1152,7 @@ class TestPhaseDetector():
         data = np.zeros((11, 1008, 1))
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
-        post_probs = pdet.apply_to_continuous(data, batchsize=2, center_window=250)
+        post_probs = pdet.apply(data, batchsize=2, center_window=250)
         assert post_probs.shape == (11, 500)
         # Make sure there aren't any examples with all zeros (like they were skipped)
         assert len(np.unique(np.where(post_probs == np.zeros((1, 500)))[0])) == 0
@@ -1174,7 +1173,6 @@ class TestPhaseDetector():
         assert os.path.basename(outfile) == 'probs.P__WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         assert os.path.dirname(outfile) == examples_dir        
 
-    # TODO: Implement this
     def test_get_continous_post_probs(self):
         model_file = f"{models_path}/pDetectorMew_model_026.pt"
         pd = apply_detectors.PhaseDetector(model_file, 3, "P")
