@@ -162,7 +162,10 @@ class ApplyDetector():
 
             date += delta
 
-    def apply_to_one_file(self, files, outdir, debug_N_examples=-1):
+    def apply_to_one_file(self, files, outdir=None, debug_N_examples=-1):
+        if outdir is None:
+            outdir = self.outdir
+            
         if self.ncomps == 1:
             self.dataloader.load_1c_data(files[0], 
                                          min_signal_percent=self.min_signal_percent,)
@@ -377,10 +380,6 @@ class DataLoader():
                                               min_signal_percent=min_signal_percent,
                                               expected_file_duration_s=expected_file_duration_s)
 
-        assert np.isin(st_E[0].stats.channel, ["EHE", "EH1", "BHE", "BH1", "HHE"]), "E file is incorrect"
-        assert np.isin(st_N[0].stats.channel, ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
-        assert np.isin(st_Z[0].stats.channel, ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
-
         # If one of the channels was skipped, return the entire day as a gap
         #TODO: IF the vertical comp still has enough signal, should I keep it?
         # When an entire day is removed, remove orientation from gap channel info
@@ -400,6 +399,10 @@ class DataLoader():
             self.gaps = gaps_Z
             self.reset_previous_day()
             return
+
+        assert np.isin(st_E[0].stats.channel, ["EHE", "EH1", "BHE", "BH1", "HHE"]), "E file is incorrect"
+        assert np.isin(st_N[0].stats.channel, ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
+        assert np.isin(st_Z[0].stats.channel, ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
 
         starttimes = [st_E[0].stats.starttime, st_N[0].stats.starttime, st_Z[0].stats.starttime]
         endtimes = [st_E[0].stats.endtime, st_N[0].stats.endtime, st_Z[0].stats.endtime]
