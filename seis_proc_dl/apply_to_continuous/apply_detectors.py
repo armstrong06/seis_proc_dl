@@ -300,7 +300,7 @@ class PhaseDetector():
         logger.info(f"Initialized {num_channels} comp {self.phase_type} unet with {self.get_n_params()} params...")
         assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
         logger.info(f"Loading model: {model_to_load}")
-        check_point = torch.load(model_to_load)
+        check_point = torch.load(model_to_load, map_location=self.device)
         self.unet.load_state_dict(check_point['model_state_dict'])
         self.unet.eval()
 
