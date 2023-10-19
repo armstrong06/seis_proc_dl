@@ -173,7 +173,7 @@ class ApplyDetector():
         for _ in range(n_days):
             ### The data files are organized Y/m/d, get the appropriate date/station files ###
             date_str = date.strftime("%Y/%m/%d")
-            files = glob.glob(os.path.join(self.data_dir, date_str, f'*{stat}*{chan}*'))
+            files = sorted(glob.glob(os.path.join(self.data_dir, date_str, f'*{stat}*{chan}*')))
 
             ### Make the output dirs have the same structure as the data dirs ###
             date_outdir = os.path.join(self.outdir, date_str)
