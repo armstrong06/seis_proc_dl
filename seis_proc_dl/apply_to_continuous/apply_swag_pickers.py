@@ -10,6 +10,7 @@ sys.path.append("/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/atucus
 from swag import models as swag_models
 from swag import utils as swag_utils
 from swag.posteriors import SWAG
+import time
 
 class SwagPicker():
     def __init__(self, model_name, checkpoint_file, seed, cov_mat=True, K=20, device="cuda:0"):
@@ -113,7 +114,11 @@ class MultiSWAGPicker():
         n_examples = cont_loader.dataset.data.shape[0]
         ensemble_outputs = np.zeros((n_examples, N*len(models)))
         for i, model in enumerate(models):
+            st = time.time()
             ensemble_outputs[:, i*N:i*N+N] = model.apply_model(cont_loader, N, train_loader)
+            et = time.time()
+            print(f"Average time per batch for model {i}: {(et-st)/len(cont_loader):3.2f} s")
+            print(f"Average time per sample for model {i}: {(et-st)/N:3.2f} s")
 
         return ensemble_outputs
 
@@ -130,11 +135,14 @@ class MultiSWAGPicker():
                     path,
                     batch_size,
                     num_workers,
-                    shuffle=True,
+                    shuffle=False,
                     n_examples=-1):
         
         with h5py.File(f'{path}/{filename}', 'r') as f:
             X = f['X'][:]
+
+        if len(X.shape) < 3:
+            X = np.expand_dims(X, 2)
 
         if n_examples > 0:
             X = X[:n_examples, :, :]
@@ -154,15 +162,15 @@ class MultiSWAGPicker():
         y_lb = df.apply(lambda x: norm.ppf(lb_transform, x["y_pred"], x["std"]), axis=1).values
         y_ub = df.apply(lambda x: norm.ppf(ub_transform, x["y_pred"], x["std"]), axis=1).values
 
-        summary = {"arrivalTimeShift":y_pred, "arrivalTimeSTD": pred_std, "arrivalTimeLowerBound": y_lb, "arrivalTimeUpperBound": y_ub}
+        summary = {"arrivalTimeShift":y_pred, "arrivalTimeShiftSTD": pred_std, "arrivalTimeShiftLowerBound": y_lb, "arrivalTimeShiftUpperBound": y_ub}
 
         return summary
     
     def format_and_save(self, meta_csv_file, pred_summary, all_predictions, outfile_pref, region):
-        meta_df = pd.read_csv(meta_csv_file)[["eventIdentifier","network","station","channel","locationCode","phase"]]
+        meta_df = pd.read_csv(meta_csv_file)[["eventIdentifier","network","station","channel","locationCode","phase", "estimateArrivalTime"]]
         summary_df = pd.DataFrame(pred_summary)
         meta_df = meta_df.join(summary_df)
-
+        meta_df.loc[:, 'correctedArrivalTime'] = meta_df['estimateArrivalTime'] + meta_df['arrivalTimeShift']
         csv_outfile = os.path.join(outfile_pref, f"corrections.{self.phase}Arrivals.{region}.csv")
         h5_outfile = os.path.join(outfile_pref, f"corrections.{self.phase}Arrivals.{region}.h5")
         print("Writing", csv_outfile, h5_outfile)

@@ -4,6 +4,7 @@ import numpy as np
 import os
 import pandas as pd
 import h5py
+from obspy.core.utcdatetime import UTCDateTime as UTC
 
 def test_init_P():
     sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True)
@@ -134,7 +135,7 @@ def test_trim_inner_fence():
 
 def test_format_and_save_P():
     sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cpu')
-    pred_summary = {"arrivalTimeShift":[0], 
+    pred_summary = {"arrivalTimeShift":[0.2], 
                     "arrivalTimeSTD": [1], 
                     "arrivalTimeLowerBound": [-2], 
                     "arrivalTimeUpperBound": [2]}
@@ -146,8 +147,10 @@ def test_format_and_save_P():
     sp.format_and_save(meta_df, pred_summary, preds, outfile_pref, region)
 
     new_df = pd.read_csv(f"{outfile_pref}/corrections.PArrivals.ynpEarthquake.csv")
-    assert new_df.shape == (1, 10)
-    
+    assert new_df.shape == (1, 12)
+    assert new_df['correctedArrivalTime'].values[0] == 1349112417.605000 + 0.2
+    assert UTC(new_df['correctedArrivalTime'].values[0]) - UTC(1349112417.605000) == 0.2
+
     with h5py.File(f"{outfile_pref}/corrections.PArrivals.ynpEarthquake.h5", "r") as f:
         assert np.array_equal(f['X'][:], preds)
 
@@ -164,5 +167,5 @@ def test_apply_picker_S():
     pass
 
 if __name__ == '__main__':
-    test_format_and_save_P()
+    test_torch_loader_cont()
 
