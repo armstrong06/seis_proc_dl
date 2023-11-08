@@ -15,8 +15,6 @@ import time
 class SwagPicker():
     def __init__(self, model_name, checkpoint_file, seed, cov_mat=True, K=20, device="cuda:0"):
         torch.backends.cudnn.benchmark = True
-        torch.manual_seed(seed)
-        torch.cuda.manual_seed(seed)
 
         eps = 1e-12
         model_cfg = getattr(swag_models, model_name)
@@ -41,7 +39,7 @@ class SwagPicker():
 
     def apply_model(self, dset_loader, N, train_loader, scale=0.5):
 
-        torch.backends.cudnn.benchmark = True
+        # TODO: I am not sure this is really needed at inference time
         torch.manual_seed(self.seed)
         torch.cuda.manual_seed(self.seed)
 
@@ -166,16 +164,21 @@ class MultiSWAGPicker():
 
         return summary
     
-    def format_and_save(self, meta_csv_file, pred_summary, all_predictions, outfile_pref, region):
-        meta_df = pd.read_csv(meta_csv_file)[["eventIdentifier","network","station","channel","locationCode","phase", "estimateArrivalTime"]]
+    def format_and_save(self, meta_csv_file, pred_summary, all_predictions, outfile_pref, region, n_meta_rows=-1):
+        columns = ["eventIdentifier","network","station","channel","locationCode","phase"]
+        if self.phase == "S":
+            columns = ["eventIdentifier","network","station","verticalChannel","locationCode","phase"]
+        meta_df = pd.read_csv(meta_csv_file)[columns]
+        if n_meta_rows > 0:
+            meta_df = meta_df.iloc[0:n_meta_rows]
         summary_df = pd.DataFrame(pred_summary)
         meta_df = meta_df.join(summary_df)
-        meta_df.loc[:, 'correctedArrivalTime'] = meta_df['estimateArrivalTime'] + meta_df['arrivalTimeShift']
-        csv_outfile = os.path.join(outfile_pref, f"corrections.{self.phase}Arrivals.{region}.csv")
-        h5_outfile = os.path.join(outfile_pref, f"corrections.{self.phase}Arrivals.{region}.h5")
+        #meta_df.loc[:, 'correctedArrivalTime'] = meta_df['estimateArrivalTime'] + meta_df['arrivalTimeShift']
+        csv_outfile = os.path.join(outfile_pref, f"corrections.{self.phase.lower()}Arrivals.{region}.csv")
+        h5_outfile = os.path.join(outfile_pref, f"corrections.{self.phase.lower()}Arrivals.{region}.h5")
         print("Writing", csv_outfile, h5_outfile)
 
-        meta_df.to_csv(csv_outfile, index=False)
+        meta_df.to_csv(csv_outfile, index=False, float_format='%0.6f')
         with h5py.File(h5_outfile, "w") as f:
             f.create_dataset("X", shape=all_predictions.shape, data=all_predictions)
     

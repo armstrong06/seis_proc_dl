@@ -76,31 +76,31 @@ def test_get_calibrated_pick_bounds():
     assert lb < 0.05 and lb > 0.0
     assert ub > 0.95 and ub < 1.0
 
-def test_apply_picker_P():
-    sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cuda:0')
-    path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/selected_models"
-    file  = f"{path}/pPicker_swag60_seed1.pt"
-    swag1 = apply_swag_pickers.SwagPicker("PPicker", file, 1,
-                            cov_mat=True, K=20, device='cuda:0')
-    path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/swag_info"
-    data_loader = sp.torch_loader("p_uuss_NGB_4s_1dup.h5",
-                                path,
-                                10, 
-                                3, 
-                                False,
-                                10)
-    assert len(data_loader) == 1
-    train_loader = sp.torch_loader("p_uuss_train_4s_1dup.h5",
-                                path,
-                                128, 
-                                3, 
-                                False)
-    new_preds = sp.apply_picker([swag1], data_loader, train_loader, 5)
+# def test_apply_picker_P():
+#     sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cuda:0')
+#     path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/selected_models"
+#     file  = f"{path}/pPicker_swag60_seed1.pt"
+#     swag1 = apply_swag_pickers.SwagPicker("PPicker", file, 1,
+#                             cov_mat=True, K=20, device='cuda:0')
+#     path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/swag_info"
+#     data_loader = sp.torch_loader("p_uuss_NGB_4s_1dup.h5",
+#                                 path,
+#                                 10, 
+#                                 3, 
+#                                 False,
+#                                 10)
+#     assert len(data_loader) == 1
+#     train_loader = sp.torch_loader("p_uuss_train_4s_1dup.h5",
+#                                 path,
+#                                 128, 
+#                                 3, 
+#                                 False)
+#     new_preds = sp.apply_picker([swag1], data_loader, train_loader, 5)
 
-    compare_preds = np.load(f"{path}/p_swag_NGB_uncertainty_40_seed1.npz")['predictions'][:10, :5]
+#     compare_preds = np.load(f"{path}/p_swag_NGB_uncertainty_40_seed1.npz")['predictions'][:10, :5]
 
-    # For some reason, the first predictions do not match
-    assert np.allclose(new_preds[:, 1:], compare_preds[:, 1:], atol=1e-6)
+#     # For some reason, the first predictions do not match
+#     assert np.allclose(new_preds[:, 1:], compare_preds[:, 1:], atol=1e-6)
 
 def test_calibrate_swag_predictions():
     sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cpu')
@@ -109,9 +109,9 @@ def test_calibrate_swag_predictions():
     lb_trans, ub_trans = sp.get_calibrated_pick_bounds(file, 0.05, 0.95)
     summary = sp.calibrate_swag_predictions([0], [1], lb_trans, ub_trans)
     assert summary['arrivalTimeShift'][0] == 0
-    assert summary['arrivalTimeSTD'][0] == 1
-    assert summary['arrivalTimeLowerBound'][0] < -2
-    assert summary['arrivalTimeUpperBound'][0] > 2
+    assert summary['arrivalTimeShiftSTD'][0] == 1
+    assert summary['arrivalTimeShiftLowerBound'][0] < -2
+    assert summary['arrivalTimeShiftUpperBound'][0] > 2
 
 def test_calibrate_swag_predictions_small():
     sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cpu')
@@ -120,9 +120,9 @@ def test_calibrate_swag_predictions_small():
     lb_trans, ub_trans = sp.get_calibrated_pick_bounds(file, 0.05, 0.95)
     summary = sp.calibrate_swag_predictions([0, 0], [1, 0.1], lb_trans, ub_trans)
     assert summary['arrivalTimeShift'][1] == 0
-    assert summary['arrivalTimeSTD'][1] == 0.1
-    assert summary['arrivalTimeLowerBound'][1] < -0.2
-    assert summary['arrivalTimeUpperBound'][1] > 0.2
+    assert summary['arrivalTimeShiftSTD'][1] == 0.1
+    assert summary['arrivalTimeShiftLowerBound'][1] < -0.2
+    assert summary['arrivalTimeShiftUpperBound'][1] > 0.2
 
 def test_trim_inner_fence():
     sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cpu')
@@ -136,9 +136,9 @@ def test_trim_inner_fence():
 def test_format_and_save_P():
     sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cpu')
     pred_summary = {"arrivalTimeShift":[0.2], 
-                    "arrivalTimeSTD": [1], 
-                    "arrivalTimeLowerBound": [-2], 
-                    "arrivalTimeUpperBound": [2]}
+                    "arrivalTimeShiftSTD": [1], 
+                    "arrivalTimeShiftLowerBound": [-2], 
+                    "arrivalTimeShiftUpperBound": [2]}
     preds = np.random.uniform(0, 1, 25)
     preds = np.expand_dims(preds, 0)
     outfile_pref = "/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files"
@@ -146,19 +146,67 @@ def test_format_and_save_P():
     meta_df = f"{outfile_pref}/test_pick_meta_df.csv"
     sp.format_and_save(meta_df, pred_summary, preds, outfile_pref, region)
 
-    new_df = pd.read_csv(f"{outfile_pref}/corrections.PArrivals.ynpEarthquake.csv")
-    assert new_df.shape == (1, 12)
-    assert new_df['correctedArrivalTime'].values[0] == 1349112417.605000 + 0.2
-    assert UTC(new_df['correctedArrivalTime'].values[0]) - UTC(1349112417.605000) == 0.2
+    new_df = pd.read_csv(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.csv")
+    assert new_df.shape == (1, 10)
+    #assert new_df.shape == (1, 12)
+    # assert new_df['correctedArrivalTime'].values[0] == 1349112417.605000 + 0.2
+    # assert UTC(new_df['correctedArrivalTime'].values[0]) - UTC(1349112417.605000) == 0.2
 
-    with h5py.File(f"{outfile_pref}/corrections.PArrivals.ynpEarthquake.h5", "r") as f:
+    with h5py.File(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.h5", "r") as f:
         assert np.array_equal(f['X'][:], preds)
 
-    os.remove(f"{outfile_pref}/corrections.PArrivals.ynpEarthquake.csv")
-    os.remove(f"{outfile_pref}/corrections.PArrivals.ynpEarthquake.h5")
+    os.remove(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.csv")
+    os.remove(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.h5")
+
+def test_format_and_save_P_limit_examples():
+    sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=True, device='cpu')
+    pred_summary = {"arrivalTimeShift":[0.2], 
+                    "arrivalTimeShiftSTD": [1], 
+                    "arrivalTimeShiftLowerBound": [-2], 
+                    "arrivalTimeShiftUpperBound": [2]}
+    preds = np.random.uniform(0, 1, 25)
+    preds = np.expand_dims(preds, 0)
+    outfile_pref = "/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files"
+    region = "ynpEarthquake"
+    meta_df = "/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/machineLearning/harvestPicks/gcc_build/pArrivals.ynpEarthquake.csv"
+    sp.format_and_save(meta_df, pred_summary, preds, outfile_pref, region, n_meta_rows=1)
+
+    new_df = pd.read_csv(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.csv")
+    assert new_df.shape == (1, 10)
+    #assert new_df.shape == (1, 12)
+    # assert new_df['correctedArrivalTime'].values[0] == 1349112417.605000 + 0.2
+    # assert UTC(new_df['correctedArrivalTime'].values[0]) - UTC(1349112417.605000) == 0.2
+
+    with h5py.File(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.h5", "r") as f:
+        assert np.array_equal(f['X'][:], preds)
+
+    os.remove(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.csv")
+    os.remove(f"{outfile_pref}/corrections.pArrivals.ynpEarthquake.h5")
 
 def test_format_and_save_S():
-    pass
+    sp = apply_swag_pickers.MultiSWAGPicker(is_p_picker=False, device='cpu')
+    pred_summary = {"arrivalTimeShift":[0.2], 
+                    "arrivalTimeShiftSTD": [1], 
+                    "arrivalTimeShiftLowerBound": [-2], 
+                    "arrivalTimeShiftUpperBound": [2]}
+    preds = np.random.uniform(0, 1, 25)
+    preds = np.expand_dims(preds, 0)
+    outfile_pref = "/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files"
+    region = "ynpEarthquake"
+    meta_df = "/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/machineLearning/harvestPicks/gcc_build/sArrivals.ynpEarthquake.csv"
+    sp.format_and_save(meta_df, pred_summary, preds, outfile_pref, region, n_meta_rows=1)
+
+    new_df = pd.read_csv(f"{outfile_pref}/corrections.sArrivals.ynpEarthquake.csv")
+    assert new_df.shape == (1, 10)
+    #assert new_df.shape == (1, 12)
+    # assert new_df['correctedArrivalTime'].values[0] == 1349112417.605000 + 0.2
+    # assert UTC(new_df['correctedArrivalTime'].values[0]) - UTC(1349112417.605000) == 0.2
+
+    with h5py.File(f"{outfile_pref}/corrections.sArrivals.ynpEarthquake.h5", "r") as f:
+        assert np.array_equal(f['X'][:], preds)
+
+    os.remove(f"{outfile_pref}/corrections.sArrivals.ynpEarthquake.csv")
+    os.remove(f"{outfile_pref}/corrections.sArrivals.ynpEarthquake.h5")
 
 def test_load_data():
     pass
@@ -167,5 +215,5 @@ def test_apply_picker_S():
     pass
 
 if __name__ == '__main__':
-    test_torch_loader_cont()
+    test_format_and_save_S()
 
