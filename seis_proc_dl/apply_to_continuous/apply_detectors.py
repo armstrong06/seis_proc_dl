@@ -296,7 +296,7 @@ class PhaseDetector():
             num_channels (int): Number of input channels for the model.
             model_to_load (str): Path to the model weights.
         """
-        self.unet = UNetModel(num_channels=num_channels, num_classes=1).to(self.device)        
+        self.unet = UNetModel(num_channels=num_channels, num_classes=1, apply_last_sigmoid=True).to(self.device)        
         logger.info(f"Initialized {num_channels} comp {self.phase_type} unet with {self.get_n_params()} params...")
         assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
         logger.info(f"Loading model: {model_to_load}")
@@ -304,12 +304,11 @@ class PhaseDetector():
         self.unet.load_state_dict(check_point['model_state_dict'])
         self.unet.eval()
 
-    def apply_model_to_batch(self, X, lsigmoid=True, center_window=None):
+    def apply_model_to_batch(self, X, center_window=None):
         """Apply the UNet to one batch of data
 
         Args:
             X (np.array): Input to model, shape should be B x S x C.
-            lsigmoid (bool, optional): Applies the sigmoid function to the model output if True. 
             Defaults to True.
             center_window (int, optional): Number of samples (W) on either side of the center of the model output to 
             return. Used with sliding windows. If None, returns all S samples. Defaults to None.
@@ -321,13 +320,7 @@ class PhaseDetector():
         X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.device)
         
         with torch.no_grad():
-            if (lsigmoid):
-                model_output = self.unet.forward(X)
-                if self.min_presigmoid_value is not None:
-                    model_output = clamp_presigmoid_values(model_output, self.min_presigmoid_value)
-                Y_est = torch.sigmoid(model_output)
-            else:
-                Y_est = self.unet.forward(X)
+            Y_est = self.unet.forward(X)
             
             # Specify axis=1 for case when batch==1
             Y_est = Y_est.squeeze(1)
@@ -337,6 +330,7 @@ class PhaseDetector():
                 j2 = int(n_samples/2 + center_window)
                 Y_est = Y_est[:,j1:j2]
 
+        # TODO: I think I can change this, don't need to send to cpu if already on cpu
         return Y_est.to('cpu').detach().numpy()
 
     def get_n_params(self):
