@@ -4,10 +4,11 @@ import numpy as np
 
 class UNetModel(torch.nn.Module):
 
-    def __init__(self, num_channels=3, num_classes=1, k=3):
+    def __init__(self, apply_last_sigmoid=False, num_channels=3, num_classes=1, k=3):
         super(UNetModel, self).__init__()
         from torch.nn import MaxPool1d, Conv1d, ConvTranspose1d
         self.relu = torch.nn.ReLU()
+        self.lsigmoid = apply_last_sigmoid
         #k = 3 #7
         p = k//2
         self.maxpool = MaxPool1d(kernel_size=2, stride=2)
@@ -53,7 +54,7 @@ class UNetModel(torch.nn.Module):
 
         self.conv93 = Conv1d(64, num_classes, kernel_size=1, padding=0)
 
-        #self.sigmoid = torch.nn.Sigmoid()
+        self.sigmoid = torch.nn.Sigmoid()
 
     def forward(self, x):
         x = self.conv11(x)
@@ -133,6 +134,9 @@ class UNetModel(torch.nn.Module):
 
         x = self.conv93(x)
 
+        if self.lsigmoid:
+            x = torch.clamp(x, -87, 87)
+            x = self.sigmoid(x)
         #x = self.sigmoid(x)
 
         return x
