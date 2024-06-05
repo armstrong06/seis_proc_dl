@@ -1,7 +1,11 @@
+# Logs 
+out.*
+
 # Large files
 *.pt
 *.h5
 *.csv
+*.onnx
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
