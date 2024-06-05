@@ -135,6 +135,11 @@ class UNetModel(torch.nn.Module):
         x = self.conv93(x)
 
         if self.lsigmoid:
+            # Logic from Ben:
+            # Sigmoid is 1/(1 + exp(-x))
+            # Float max: float: 3.40282e+38
+            # log(float max): 88.7
+            # Used min=-70, max=None in Armstrong et al, 2023
             x = torch.clamp(x, -87, 87)
             x = self.sigmoid(x)
         #x = self.sigmoid(x)
