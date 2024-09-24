@@ -11,6 +11,9 @@ import sys
 import json
 import datetime
 import glob
+
+from seis_proc_dl.apply_to_continuous.apply_detectors import DataLoader
+
 sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
 import pyuussmlmodels
 from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
@@ -30,8 +33,46 @@ logger.addHandler(stdoutHandler)
 logger.setLevel(logging.DEBUG)
 
 class ApplyDetectorPyuussml():
-    def __init__(self):
-        pass
+    def __init__(self, 
+                 ncomps, 
+                 config
+                 ) -> None:
+        """Use DataLoader and PhaseDetector to load and apply detectors to day chunks of seismic data.
+
+        Args:
+            ncomps (int): The number of components for the phase detector and data (1 or 3).
+            config (object): dictionary defining information needed for the PhaseDetector and DataLoader,
+            and path information
+
+        Raises:
+            ValueError: _description_
+            ValueError: _description_
+        """
+        self.p_detector = None
+        self.s_detector = None
+        # There's only a P processing func because need to specify 1 or 3 c
+        self.p_proc_func = None
+        self.ncomps = ncomps
+        config = Config.from_json(config)
+        self.dataloader = DataLoader(config.dataloader.store_N_seconds)
+        self.data_dir = config.paths.data_dir
+        self.outdir = config.paths.output_dir
+        self.device = config.unet.device
+        #self.expected_file_duration_s = config.dataloader.expected_file_duration_s
+        self.min_signal_percent = config.dataloader.min_signal_percent
+
+        if ncomps == 1:
+            self.p_model_file = config.paths.one_comp_p_model
+            self.s_model_file = None
+            self.__init_1c()
+        elif ncomps == 3:
+            self.p_model_file = config.paths.three_comp_p_model
+            self.s_model_file = config.paths.three_comp_s_model
+            if self.s_model_file is None:
+                raise ValueError("S Detector cannot be None for 3C")
+            self.__init_3c()
+        else:
+            raise ValueError("Invalid number of components")
 
     def __init_1c(self):
         """Initialize the phase detector for 1 component P picker
@@ -127,18 +168,28 @@ class ApplyDetectorPyuussml():
                                          min_signal_percent=self.min_signal_percent,)
                                          #expected_file_duration_s=self.expected_file_duration_s)
         self.__apply_to_one_phase(self.p_detector, self.p_proc_func, 
-                                  files[0], outdir, debug_N_examples=debug_N_examples)
+                                  files[0], outdir, 
+                                  phase_type="P",
+                                  debug_N_examples=debug_N_examples)
 
         if self.ncomps == 3:
             self.__apply_to_one_phase(self.s_detector, self.dataloader.process_3c_S, 
-                                      files[0], outdir, debug_N_examples=debug_N_examples)
+                                      files[0], outdir, 
+                                      phase_type="S", 
+                                      debug_N_examples=debug_N_examples)
 
         ### Save the station meta info (including gaps) to a file in the same dir as the post probs. ###
         ### Only need one file per station/day pair ###
         meta_outfile_name =  self.dataloader.make_outfile_name(files[0], outdir)
         self.dataloader.write_data_info(meta_outfile_name)
 
-    def __apply_to_one_phase(self, detector, proc_func, file_for_name, outdir, debug_N_examples=-1):
+    def __apply_to_one_phase(self, 
+                             detector, 
+                             proc_func, 
+                             file_for_name, 
+                             outdir,
+                             phase_type,
+                             debug_N_examples=-1):
         """Format continuous data and apply phase detector. Write posterior probabilities to disk.
 
         Args:
@@ -149,29 +200,60 @@ class ApplyDetectorPyuussml():
             debug_N_examples (int, optional):  Number of waveform segments to pass to the phase detector, use 
             all inputs if -1. Defaults to -1.
         """
-        probs_outfile_name = self.make_outfile_name(file_for_name, outdir)
+        probs_outfile_name = self.make_outfile_name(phase_type, file_for_name, outdir)
 
-        data = self.dataloader.continuous_data
-        data = proc_func(data)
-
+        data_day = self.dataloader.continuous_data
         if debug_N_examples > 0:
+            central_window_start_end_ind = detector.central_window_start_end_index
+            central_window_n_samples = central_window_start_end_ind[1] - central_window_start_end_ind[0]
             logger.debug("Reducing data to %d examples", debug_N_examples)
-            data = data[0:debug_N_examples*self.window_lengeth, :]
+            data_day = data_day[0:int(debug_N_examples*detector.expected_signal_length), :] 
             # Update npts so an error does not get thrown in save_post_probs
-            self.dataloader.metadata['npts'] = int(debug_N_examples*self.center_window*2)
+            # self.dataloader.metadata['npts'] = int(debug_N_examples*central_window_n_samples*2)
+            # Ben's code keeps the output the same size - TODO: check what he does for edge cases
+            self.dataloader.metadata['npts'] = data_day.shape[0]
+        n_samples_total = data_day.shape[0]
 
-        if data.shape[1] == 3:
-            cont_post_probs = detector.predict_probability(data[:, 2], 
-                                                           data[:, 1], 
-                                                           data[:, 0], 
-                                                           use_sliding_window=True)
-        else:
-            cont_post_probs = detector.predict_probability(data[:, 0], 
-                                                           use_sliding_window=True)
-        
-        self.save_post_probs(probs_outfile_name, cont_post_probs, self.dataloader.metadata)
+        all_cont_post_probs = []
+        sampling_rate = detector.sampling_rate
+        n_samples_hour = int(60*60*sampling_rate)
+        buffer = int(60*2*sampling_rate) # Add one minute buffer on either end
+        start_sample = 0 # Begin at 0
+        start_pad = 0   # No buffer at the beginning of the day
+        end_pad = buffer    # Buffer at the beginning but not the end
 
-    def make_outfile_name(self, wf_filename, dir):
+        while (start_sample + 2*buffer) < n_samples_total:
+            end_sample = int(start_sample + n_samples_hour + buffer)
+            if start_pad != 0:
+                end_sample += buffer
+            if end_sample >= n_samples_total:
+                end_sample = n_samples_total
+                end_pad = 0
+
+            data = data_day[start_sample:end_sample]
+            data = proc_func(data)
+
+            if data.shape[1] == 3:
+                cont_post_probs = detector.predict_probability(data[:, 2], 
+                                                            data[:, 1], 
+                                                            data[:, 0], 
+                                                            use_sliding_window=True)
+            else:
+                cont_post_probs = detector.predict_probability(data[:, 0], 
+                                                            use_sliding_window=True)
+            last_sample = int(cont_post_probs.shape[0]-end_pad)
+            #print(start_pad, last_sample, last_sample-start_pad)
+            cont_post_probs = cont_post_probs[start_pad:last_sample]
+            # assert cont_post_probs.shape[0] == n_samples_hour
+            all_cont_post_probs.append(cont_post_probs)
+            start_sample = int(end_sample - 2*buffer)
+            start_pad = buffer
+
+        all_cont_post_probs = np.concatenate(all_cont_post_probs)
+        assert all_cont_post_probs.shape[0] == n_samples_total
+        self.save_post_probs(probs_outfile_name, all_cont_post_probs, self.dataloader.metadata)
+
+    def make_outfile_name(self, phase_type, wf_filename, dir):
         """Given an input file name, create the output path for the posterior probabilities.
         Makes the output directory if it does not exist.
 
@@ -188,7 +270,7 @@ class ApplyDetectorPyuussml():
         #     chan = ""
         # post_prob_name = f"probs.{self.phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
 
-        post_prob_name = f"probs.{self.phase_type}__{os.path.basename(wf_filename)}"
+        post_prob_name = f"probs.{phase_type}__{os.path.basename(wf_filename)}"
 
         if not os.path.exists(dir):
             logger.debug(f"Making directory {dir}")
