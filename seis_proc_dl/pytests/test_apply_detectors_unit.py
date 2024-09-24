@@ -5,6 +5,8 @@ import obspy
 from obspy.core.util.attribdict import AttribDict
 import os
 import json
+import pytest
+from copy import deepcopy
 
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files'
 models_path = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/selected_models"
@@ -346,6 +348,37 @@ class TestDataLoader():
         assert dl.continuous_data.shape == (8640000, 3)
         assert len(dl.metadata.keys()) == 15
         assert len(dl.gaps) == 3
+
+    def test_load_3c_catch_40hz(self):
+        fileE = f'{examples_dir}/US.LKWY.00.BH1__2022-10-06T00:00:00.000000Z__2022-10-07T00:00:00.000000Z.mseed'
+        fileN = f'{examples_dir}/US.LKWY.00.BH2__2022-10-06T00:00:00.000000Z__2022-10-07T00:00:00.000000Z.mseed'
+        fileZ = f'{examples_dir}/US.LKWY.00.BHZ__2022-10-06T00:00:00.000000Z__2022-10-07T00:00:00.000000Z.mseed'
+        
+        dl = apply_detectors.DataLoader()
+        with pytest.raises(NotImplementedError):
+            dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+
+    def test_load_3c_variable_starts(self):
+        fileE = f'{examples_dir}/US.LKWY.00.BH1__100hz__2022-10-06T00:00:00.000000Z__2022-10-07T00:00:00.000000Z.mseed'
+        fileN = f'{examples_dir}/US.LKWY.00.BH2__100hz__2022-10-06T00:00:00.000000Z__2022-10-07T00:00:00.000000Z.mseed'
+        fileZ = f'{examples_dir}/US.LKWY.00.BHZ__100hz__2022-10-06T00:00:00.000000Z__2022-10-07T00:00:00.000000Z.mseed'
+        
+        dl = apply_detectors.DataLoader()
+        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert dl.continuous_data.shape == (8640000, 3)
+        assert len(dl.metadata.keys()) == 15
+        assert len(dl.gaps) == 3
+
+    def test_load_3c_too_long(self):
+        fileE = f'{examples_dir}/US.LKWY.00.BH1__100hz__2022-10-07T00:00:00.000000Z__2022-10-08T00:00:00.000000Z.mseed'
+        fileN = f'{examples_dir}/US.LKWY.00.BH2__100hz__2022-10-07T00:00:00.000000Z__2022-10-08T00:00:00.000000Z.mseed'
+        fileZ = f'{examples_dir}/US.LKWY.00.BHZ__100hz__2022-10-07T00:00:00.000000Z__2022-10-08T00:00:00.000000Z.mseed'
+        
+        dl = apply_detectors.DataLoader()
+        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert dl.continuous_data.shape == (8640000, 3)
+        assert len(dl.metadata.keys()) == 15
+        assert len(dl.gaps) == 0
 
     def test_save_meta_data_3c(self):
         # Make dummy stats values

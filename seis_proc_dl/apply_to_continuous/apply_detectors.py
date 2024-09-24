@@ -866,17 +866,21 @@ class DataLoader():
         st = obspy.read(file)
 
         sampling_rate = round(st[0].stats.sampling_rate)
+
+        # Safer to just not allow other sampling rates for now
+        if (abs(sampling_rate - 100) > 1e-3):
+            raise NotImplementedError("Only data sampled at 100 Hz has been tested")
+        
         # TODO: this only works for days, not hours - fine for me
         if expected_file_duration_s != 24*60*60:
             raise NotImplementedError("DataLoader only works for day long files at the moment...")
+        
         starttime = st[0].stats.starttime
         desired_start = UTC(starttime.year, starttime.month, starttime.day)
-        desired_end = desired_start + expected_file_duration_s
-        # TODO: If one of these assertions is thrown, update trimming code to occur
-        # If the startime happens to be on the day before, it'll mess up the desired day
+        desired_end = desired_start + expected_file_duration_s #-0.01)
+        # TODO: If the startime happens to be on the day before, it'll mess up the desired day
         assert starttime >= desired_start, "The stream begins on the previous day of interest"
-        assert st[0].stats.endtime <= desired_end, "The end of the trace goes into the next day"
-
+        
         # If there is not enough signal in this day, skip the day
         total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
         max_npts = expected_file_duration_s*round(sampling_rate)
@@ -908,17 +912,29 @@ class DataLoader():
         # Check for gaps at the start/end of the day and save if they exist
         start_gap, end_gap = self.format_edge_gaps(st, desired_start, desired_end)
         if start_gap is not None:
-            gaps.insert(0, start_gap)
+            # Don't save gaps less than 0.05 s (5 samples)
+            if start_gap[5] - start_gap[4] >= 0.05:
+                gaps.insert(0, start_gap)
             # Fill the start of the trace with the first value, if needed
             st = st.trim(starttime=desired_start, pad=True, 
                          fill_value=st[0].data[0], nearest_sample=False)
         if end_gap is not None:
-            gaps += [end_gap]
+            # Don't save gaps less than 0.05 s (5 samples)
+            if end_gap[5] - end_gap[4] >= 0.05:
+                gaps += [end_gap]
             # Fill the end of the trace with the last value, if needed
             # set nearest_sample to False or it will extent to the next day 
             # and have 8460001 samples
             st = st.trim(endtime=desired_end, pad=True, 
                          fill_value=st[0].data[-1], nearest_sample=False)
+
+        # Trim the waveform to the desired length if it is too long
+        # Do this after filling the start gap so I can trim it using the number of 
+        # samples instead of the trim function - which might result in +- 1 sample difference
+        # Obspy handles endtime update after reducing the data 
+        if st[0].stats.endtime > desired_end:
+            st[0].data = st[0].data[0:int(expected_file_duration_s*sampling_rate)]
+        assert st[0].stats.endtime <= desired_end, "The end of the trace goes into the next day"
 
         return st, gaps 
 
@@ -1017,6 +1033,7 @@ class DataLoader():
         north = wfs[:, 1]
         vert = wfs[:, 2]
         proc_z, proc_n, proc_e = processor.process(vert, north, east, sampling_rate=desired_sampling_rate)
+        # TODO: I'm pretty sure this won't work if the desired_sampling_rate != current sampling rate
         processed = np.zeros_like(wfs)
         processed[:, 0] = proc_e
         processed[:, 1] = proc_n
@@ -1093,7 +1110,7 @@ class DataLoader():
     
     @staticmethod
     def format_edge_gaps(st, desired_start, desired_end, entire_file=False):
-        """Checks for gaps greater than 1 second at the start and end of an Obspy Stream.
+        """Checks for gaps greater than 1 sample at the start and end of an Obspy Stream.
         Only looks at the first trace in the stream. *The desired endtime may be off by ~1 second*
         If a gap exists returns a list in the format of Obspy's get_gaps(), otherwise returns None.
 
@@ -1118,13 +1135,14 @@ class DataLoader():
         start_delta = starttime - desired_start
         end_delta = desired_end - endtime
 
+        dt = st[0].stats.delta
         start_gap = None
-        if start_delta > 1:
+        if start_delta > dt:
             start_gap = [st[0].stats.network, st[0].stats.station, st[0].stats.location, st[0].stats.channel, 
                         desired_start, starttime, start_delta, int(start_delta*sampling_rate)]
 
         end_gap = None
-        if end_delta > 1:
+        if end_delta > dt:
             end_gap = [st[0].stats.network, st[0].stats.station, st[0].stats.location, st[0].stats.channel,
                         endtime, desired_end, end_delta, int(end_delta*sampling_rate)]
 
