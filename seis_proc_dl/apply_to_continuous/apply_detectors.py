@@ -6,12 +6,14 @@ import logging
 import torch
 import os
 import re
-# TODO: Better way to import pyuussmlmodels than adding path?
 import sys
 import json
 import datetime
 import glob
+import openvino as ov
+
 sys.path.append("/uufs/chpc.utah.edu/common/home/koper-group4/bbaker/mlmodels/intel_cpu_build")
+# TODO: Better way to import pyuussmlmodels than adding path?
 import pyuussmlmodels
 from seis_proc_dl.utils.model_helpers import clamp_presigmoid_values
 from seis_proc_dl.detectors.models.unet_model import UNetModel
@@ -47,6 +49,7 @@ class ApplyDetector():
         """
         self.p_detector = None
         self.s_detector = None
+        # There's only a P processing func because need to specify 1 or 3 c
         self.p_proc_func = None
         self.ncomps = ncomps
         config = Config.from_json(config)
@@ -61,6 +64,7 @@ class ApplyDetector():
         self.min_torch_threads = config.unet.min_torch_threads
         self.min_presigmoid_value = config.unet.min_presigmoid_value
         self.batchsize = config.unet.batchsize
+        self.use_openvino = config.unet.use_openvino
         #self.expected_file_duration_s = config.dataloader.expected_file_duration_s
         self.min_signal_percent = config.dataloader.min_signal_percent
 
@@ -124,6 +128,8 @@ class ApplyDetector():
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
                             num_torch_threads=self.min_torch_threads)
+        if self.use_openvino:
+            self.p_detector.compile_openvino_model(self.window_length)
         self.p_proc_func = self.dataloader.process_1c_P
 
     def __init_3c(self):
@@ -135,13 +141,16 @@ class ApplyDetector():
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
                             num_torch_threads=self.min_torch_threads)
-        
+        if self.use_openvino:
+            self.p_detector.compile_openvino_model(self.window_length)
         self.s_detector = PhaseDetector(self.s_model_file,
                             3,
                             "S",
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
                             num_torch_threads=self.min_torch_threads)
+        if self.use_openvino:
+            self.s_detector.compile_openvino_model(self.window_length)
         self.p_proc_func = self.dataloader.process_3c_P
 
     def apply_to_multiple_days(self, stat, chan, year, month, day, n_days, debug_N_examples=-1):
@@ -282,10 +291,14 @@ class PhaseDetector():
         """
         #warnings.simplefilter("ignore")
         self.phase_type = phase_type
-        torch.set_num_threads(num_torch_threads)
+        self.num_threads = num_torch_threads
+        if num_torch_threads > 0:
+            torch.set_num_threads(num_torch_threads)
         self.unet = None
-        self.device = torch.device(device)
+        self.torch_device = torch.device(device)
+        self.openvino_device = device.upper()
         self.min_presigmoid_value = min_presigmoid_value
+        self.openvino_compiled = False
         self.__init_model(num_channels, model_to_load)
         self.num_channels = num_channels
 
@@ -296,11 +309,12 @@ class PhaseDetector():
             num_channels (int): Number of input channels for the model.
             model_to_load (str): Path to the model weights.
         """
-        self.unet = UNetModel(num_channels=num_channels, num_classes=1, apply_last_sigmoid=True).to(self.device)        
+        # Load the torch model
+        self.unet = UNetModel(num_channels=num_channels, num_classes=1, apply_last_sigmoid=True).to(self.torch_device)        
         logger.info(f"Initialized {num_channels} comp {self.phase_type} unet with {self.get_n_params()} params...")
         assert os.path.exists(model_to_load), f"Model {model_to_load} does not exist"
         logger.info(f"Loading model: {model_to_load}")
-        check_point = torch.load(model_to_load, map_location=self.device)
+        check_point = torch.load(model_to_load, map_location=self.torch_device)
         self.unet.load_state_dict(check_point['model_state_dict'])
         self.unet.eval()
 
@@ -317,7 +331,7 @@ class PhaseDetector():
             np.array: Posterior probabilities in shape (B x S) or (B x W).
         """
         n_samples = X.shape[1] 
-        X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.device)
+        X = torch.from_numpy(X.transpose((0, 2, 1))).float().to(self.torch_device)
         
         with torch.no_grad():
             Y_est = self.unet.forward(X)
@@ -333,8 +347,59 @@ class PhaseDetector():
         # TODO: I think I can change this, don't need to send to cpu if already on cpu
         return Y_est.to('cpu').detach().numpy()
 
+    def compile_openvino_model(self, window_length):
+            # Example input shape
+            input = torch.zeros((1, self.num_channels, window_length)).float()
+
+            # Convert the model to openvino
+            ov_model = ov.convert_model(self.unet, example_input=(input,))
+
+            # Compile the model for the appropriate device
+            core = ov.Core()
+            n_threads = self.num_threads
+            # Pytorch uses -1 to indicate using all threads while openvino uses 0
+            if n_threads < 0:
+                n_threads = 0
+            ov_compiled_model = core.compile_model(ov_model, 
+                                                   self.openvino_device,
+                                                   config={ov.properties.inference_num_threads(): n_threads})
+            self.unet = ov_compiled_model
+            self.openvino_compiled = True
+
+    def apply_openvino_model_to_batch(self, X, center_window=None):
+            """Apply the UNet to one batch of data using openvino model
+
+            Args:
+                X (np.array): Input to model, shape should be B x S x C.
+                Defaults to True.
+                center_window (int, optional): Number of samples (W) on either side of the center of the model output to 
+                return. Used with sliding windows. If None, returns all S samples. Defaults to None.
+
+            Returns:
+                np.array: Posterior probabilities in shape (B x S) or (B x W).
+            """
+            n_samples = X.shape[1] 
+            # Model input expects float32, input X is float64
+            X = ov.runtime.Tensor(X.transpose((0, 2, 1)).astype("float32"))
+
+            Y_est = self.unet({0: X})[0]
+            # Specify axis=1 for case when batch==1
+            Y_est = np.squeeze(Y_est, axis=1)
+
+            if center_window:
+                j1 = int(n_samples/2 - center_window)
+                j2 = int(n_samples/2 + center_window)
+                Y_est = Y_est[:,j1:j2]
+
+            return Y_est
+
     def get_n_params(self):
         """ Get the number of trainable parameters in the model"""
+        
+        if self.openvino_compiled:
+            logger.warning('Can only return number of params for Torch model, not OpenVino')
+            return None
+        
         return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
 
     def apply(self, input, batchsize=256, center_window=None):
@@ -359,9 +424,15 @@ class PhaseDetector():
             batch_end = np.min([batch_start+batchsize, n_examples])
             batch = input[batch_start:batch_end, :, :]
 
-            post_probs[batch_start:batch_end, :] = self.apply_model_to_batch(batch, center_window=center_window)
+            if not self.openvino_compiled:
+                post_probs[batch_start:batch_end, :] = self.apply_model_to_batch(batch, 
+                                                                                 center_window=center_window)
+            else:
+                post_probs[batch_start:batch_end, :] = self.apply_openvino_model_to_batch(batch, 
+                                                                                          center_window=center_window)
 
             batch_start += batchsize
+
         # Not going to flatten the post probs here, in case the center window is not used 
         return post_probs
     
