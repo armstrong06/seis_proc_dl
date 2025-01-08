@@ -1091,8 +1091,8 @@ class DataLoader():
             # The sampling rates do not equal npts/duration for the gap either.
             try:
                 st.merge(fill_value='interpolate')
-            except:
-                logger.info("Caught obspy Incompatible Traces warning. Fixing the sampling rates...")
+            except Exception as e:
+                logger.info(f"Caught obspy Incompatible Traces warning: {e}. Fixing the sampling rates...")
                 delta = round(1/sampling_rate, 3)
 
                 for tr in st:
