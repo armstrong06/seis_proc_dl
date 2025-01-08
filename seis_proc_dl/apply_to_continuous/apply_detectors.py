@@ -194,11 +194,28 @@ class ApplyDetector():
         assert n_days > 0, "Number of days is invalid"
 
         ### Set the start date and time increment of the files ###
-        date = datetime.date(year, month, day)
+        date = datetime.datetime(year, month, day)
         delta = datetime.timedelta(days=1)
+
+        # If using 1 comp, make sure Z is specified in the channel
+        if self.ncomps == 1 and ((len(chan) == 2) or ("?" in chan)):
+            chan = chan[0:2] + "Z"
+
+        stat_startdate, stat_enddate = self.get_station_dates(year, stat, chan)
 
         ### Iterate over the specified number of days ###
         for _ in range(n_days):
+            ### If starting in a new year, reload metadata
+            if date.year > year:
+                year = date.year
+                stat_startdate, stat_enddate = self.get_station_dates(year, stat, chan)
+                logger.info(f"Starting in new year ({year})")
+
+            ### Make sure that the station is operational for this date
+            if not self.validate_run_date(date, stat_startdate, stat_enddate):
+                logger.warning(f"Valid date range for station {stat}.{chan} is {stat_startdate} - {stat_enddate}. Exiting.")
+                return
+
             ### The data files are organized Y/m/d, get the appropriate date/station files ###
             date_str = date.strftime("%Y/%m/%d")
             files = sorted(glob.glob(os.path.join(self.data_dir, date_str, f'*{stat}*{chan}*')))
@@ -295,6 +312,56 @@ class ApplyDetector():
                                                             end_pad_npts=end_pad_npts)
         
         detector.save_post_probs(probs_outfile_name, cont_post_probs, self.dataloader.metadata)
+
+    def get_station_dates(self, year, stat, chan):
+        file_name = os.path.join(self.data_dir, str(year), f"stations/*{stat}.xml")
+        files = glob.glob(file_name)
+        
+        if len(files) != 1:
+            logger.warning(f"Station xml file {file_name} does not exist...")
+            return None, None
+        
+        inv = obspy.read_inventory(files[0])
+        
+        # If a 3C station, only look at E/N or 1/2 components
+        # in case a 3C was changed to 1C or vice versa
+        if self.ncomps == 3:
+            if len(chan) == 3:
+                chan = chan[:-1]
+            chan += "[!Z]"
+
+        inv = inv.select(channel=chan)
+
+        if len(inv) == 0:
+            logger.warning(f"No metadata for channel {chan} in {file_name}")
+            return None, None
+
+        stat_info = inv.select(channel=chan)[0][0]
+        start_date = np.min([stat_info[i].start_date for i in range(len(stat_info))])
+        ends = [stat_info[i].end_date for i in range(len(stat_info))]
+        end_date = (None if None in ends else np.max(ends))
+
+        if start_date is not None:
+            start_date = start_date.datetime
+        if end_date is not None:
+            end_date = end_date.datetime
+
+        return start_date, end_date
+
+    @staticmethod
+    def validate_run_date(current_date, start_date, end_date):
+        # Likley no metadata read in
+        if start_date is None:
+            return False
+        
+        # Station is on going 
+        if current_date >= start_date and end_date is None:
+            return True
+        
+        if current_date >= start_date and current_date <= end_date:
+            return True
+        
+        return False
 
 class PhaseDetector():
     def __init__(self, 
