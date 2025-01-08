@@ -65,6 +65,10 @@ class ApplyDetector():
         self.min_presigmoid_value = config.unet.min_presigmoid_value
         self.batchsize = config.unet.batchsize
         self.use_openvino = config.unet.use_openvino
+
+        if self.use_openvino:
+            self.use_async = config.unet.use_async
+
         self.post_probs_file_type = config.unet.post_probs_file_type
         #self.expected_file_duration_s = config.dataloader.expected_file_duration_s
         self.min_signal_percent = config.dataloader.min_signal_percent
@@ -128,9 +132,12 @@ class ApplyDetector():
                             "P",
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
+                            num_torch_threads=self.min_torch_threads,
                             post_probs_file_type=self.post_probs_file_type)
         if self.use_openvino:
-            self.p_detector.compile_openvino_model(self.window_length)
+            self.p_detector.compile_openvino_model(self.window_length, 
+                                                   self.batchsize, 
+                                                   self.use_async)
         self.p_proc_func = self.dataloader.process_1c_P
 
     def __init_3c(self):
@@ -141,17 +148,24 @@ class ApplyDetector():
                             "P",
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
+                            num_torch_threads=self.min_torch_threads,
                             post_probs_file_type=self.post_probs_file_type)
         if self.use_openvino:
-            self.p_detector.compile_openvino_model(self.window_length)
+            self.p_detector.compile_openvino_model(self.window_length, 
+                                                   self.batchsize, 
+                                                   self.use_async)
         self.s_detector = PhaseDetector(self.s_model_file,
                             3,
                             "S",
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
+                            num_torch_threads=self.min_torch_threads,
                             post_probs_file_type=self.post_probs_file_type)
+        
         if self.use_openvino:
-            self.s_detector.compile_openvino_model(self.window_length)
+            self.s_detector.compile_openvino_model(self.window_length, 
+                                                   self.batchsize, 
+                                                   self.use_async)
         self.p_proc_func = self.dataloader.process_3c_P
 
     def apply_to_multiple_days(self, stat, chan, year, month, day, n_days, debug_N_examples=-1):
@@ -278,6 +292,7 @@ class PhaseDetector():
                  phase_type,
                  min_presigmoid_value=None, 
                  device="cpu",
+                 num_torch_threads=2,
                  post_probs_file_type="MSEED"):
         """Load and apply UNet phase detectors. Save the posterior probabilities to disk.
 
@@ -300,6 +315,8 @@ class PhaseDetector():
         self.openvino_device = device.upper()
         self.min_presigmoid_value = min_presigmoid_value
         self.openvino_compiled = False
+        self.use_openvino_async = False
+        
         self.__init_model(num_channels, model_to_load)
         self.num_channels = num_channels
         self.post_probs_file_type = post_probs_file_type    
@@ -349,12 +366,11 @@ class PhaseDetector():
         # TODO: I think I can change this, don't need to send to cpu if already on cpu
         return Y_est.to('cpu').detach().numpy()
 
-    def compile_openvino_model(self, window_length):
-            # Example input shape
-            input = torch.zeros((1, self.num_channels, window_length)).float()
-
+    def compile_openvino_model(self, window_length, batchsize, use_async):
             # Convert the model to openvino
-            ov_model = ov.convert_model(self.unet, example_input=(input,))
+            ov_model = ov.convert_model(self.unet, 
+                                        input=([batchsize, self.num_channels, window_length],
+                                                ov.Type.f32))
 
             # Compile the model for the appropriate device
             core = ov.Core()
@@ -362,13 +378,21 @@ class PhaseDetector():
             # Pytorch uses -1 to indicate using all threads while openvino uses 0
             if n_threads < 0:
                 n_threads = 0
+
+            perf_hint = hints.PerformanceMode.LATENCY
+            if use_async:
+                perf_hint = hints.PerformanceMode.THROUGHPUT
+
             ov_compiled_model = core.compile_model(ov_model, 
                                                    self.openvino_device,
-                                                   config={ov.properties.inference_num_threads(): n_threads})
+                                                   config={ov.properties.inference_num_threads(): n_threads,
+                                                           hints.performance_mode: perf_hint,#})
+                                                           "AFFINITY": "NUMA"})
             self.unet = ov_compiled_model
             self.openvino_compiled = True
+            self.use_openvino_async = use_async
 
-    def apply_openvino_model_to_batch(self, X, center_window=None):
+    def apply_sync_openvino_model_to_batch(self, X, center_window=None):
             """Apply the UNet to one batch of data using openvino model
 
             Args:
@@ -395,17 +419,56 @@ class PhaseDetector():
 
             return Y_est
 
-    def get_n_params(self):
-        """ Get the number of trainable parameters in the model"""
-        
-        if self.openvino_compiled:
-            logger.warning('Can only return number of params for Torch model, not OpenVino')
-            return None
-        
-        return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
+    def apply_async_openvino(self, input, batchsize=2, center_window=None):
+        n_examples_org, n_samples, n_channels = input.shape
+        input = input.transpose((0, 2, 1)).astype("float32").copy()
 
-    def apply(self, input, batchsize=256, center_window=None):
-        """Apply the UNet to batches of data.
+        j1 = 0
+        j2 = n_samples
+        if center_window is not None:
+            j1 = int(n_samples/2 - center_window)
+            j2 = int(n_samples/2 + center_window)
+        
+        n_examples = n_examples_org
+        if n_examples_org % batchsize != 0:
+            expansion_size = (batchsize - n_examples%batchsize)
+            n_examples += expansion_size
+            input = np.append(input, 
+                              np.zeros((expansion_size, n_channels, n_samples), dtype="float32"), 
+                              axis=0) 
+
+        post_probs = np.zeros((n_examples, 1, n_samples), dtype="float32")
+
+        # Set up inference request
+        num_requests = self.unet.get_property(props.optimal_number_of_infer_requests)
+        # print("Optimal number of requests: ", num_requests)
+        infer_queue = ov.AsyncInferQueue(self.unet, num_requests)
+
+        # Function for storing the results
+        def callback(infer_request, userdata):
+            results = infer_request.get_output_tensor().data
+            s = results.shape[0]
+            post_probs[userdata:userdata+s, :, :] = results
+        infer_queue.set_callback(callback)
+
+        sind = 0
+        while sind < n_examples:
+            eind = np.min([n_examples, sind+batchsize*num_requests])
+
+            for i in range(sind, eind, batchsize):
+                shared_tensor = ov.Tensor(input[i:i+batchsize, :, :], shared_memory=True)
+                infer_queue.start_async({0: shared_tensor}, userdata=i)
+
+            sind += num_requests*batchsize
+        infer_queue.wait_all()
+
+        post_probs = np.squeeze(post_probs[:n_examples_org, :, j1:j2], axis=1)
+        # Not going to flatten the post probs here, in case the center window is not used 
+        return post_probs
+
+
+    def apply_sync(self, input, batchsize=256, center_window=None):
+        """Apply the UNet to batches of data in a syncronous manner.
 
         Args:
             input (np.array): Data to apply model to. In format N x S x C. 
@@ -416,11 +479,21 @@ class PhaseDetector():
         Returns:
             np.array: Posterior probabilities in shape (N x S) or (N x W).
         """
-        n_examples, n_samples, n_channels = input.shape
+        n_examples_org, n_samples, n_channels = input.shape
+
+        n_examples = n_examples_org
+        if n_examples_org % batchsize != 0:
+            expansion_size = (batchsize - n_examples%batchsize)
+            n_examples += expansion_size
+            input = np.append(input, 
+                            np.zeros((expansion_size, n_samples, n_channels), dtype="float32"), 
+                            axis=0) 
+            
         if center_window is not None:
             n_samples = center_window*2
+
         # model output is N x S
-        post_probs = np.zeros((n_examples, n_samples))
+        post_probs = np.zeros((n_examples, n_samples), dtype="float32")
         batch_start = 0
         while batch_start < n_examples:
             batch_end = np.min([batch_start+batchsize, n_examples])
@@ -430,14 +503,23 @@ class PhaseDetector():
                 post_probs[batch_start:batch_end, :] = self.apply_model_to_batch(batch, 
                                                                                  center_window=center_window)
             else:
-                post_probs[batch_start:batch_end, :] = self.apply_openvino_model_to_batch(batch, 
+                post_probs[batch_start:batch_end, :] = self.apply_sync_openvino_model_to_batch(batch, 
                                                                                           center_window=center_window)
 
             batch_start += batchsize
 
         # Not going to flatten the post probs here, in case the center window is not used 
-        return post_probs
+        return post_probs[:n_examples_org, :]
     
+    def get_n_params(self):
+        """ Get the number of trainable parameters in the model"""
+        
+        if self.openvino_compiled:
+            logger.warning('Can only return number of params for Torch model, not OpenVino')
+            return None
+        
+        return sum(p.numel() for p in self.unet.parameters() if p.requires_grad)
+
     def get_continuous_post_probs(self, input, center_window, window_edge_npts, 
                                   batchsize=256, start_pad_npts=0, end_pad_npts=0):
         """Wrapper function to get the continuous posterior probabilities when using a sliding window  
@@ -457,7 +539,10 @@ class PhaseDetector():
             np.array: Continuous posterior probabilities in shape (X, ). Where X is the number of points in the
             continuous data.
         """
-        unet_output = self.apply(input, center_window=center_window, batchsize=batchsize)
+        if self.use_openvino_async:
+            unet_output = self.apply_async_openvino(input, center_window=center_window, batchsize=batchsize)
+        else:
+            unet_output = self.apply_sync(input, center_window=center_window, batchsize=batchsize)
         cont_post_probs = self.flatten_model_output(unet_output)
         cont_post_probs = self.trim_post_probs(cont_post_probs, 
                                                 start_pad_npts, 
