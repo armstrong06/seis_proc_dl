@@ -232,7 +232,8 @@ class ApplyDetector():
         """
         if outdir is None:
             outdir = self.outdir
-            
+
+        start_total = time.time()
         if self.ncomps == 1:
             self.dataloader.load_1c_data(files[0], 
                                          min_signal_percent=self.min_signal_percent,)
@@ -241,17 +242,22 @@ class ApplyDetector():
             self.dataloader.load_3c_data(files[0], files[1], files[2], 
                                          min_signal_percent=self.min_signal_percent,)
                                          #expected_file_duration_s=self.expected_file_duration_s)
+        logger.debug(f"Time to load data: {time.time() - start_total:0.2f} s")
+        start_P = time.time()
         self.__apply_to_one_phase(self.p_detector, self.p_proc_func, 
                                   files[0], outdir, debug_N_examples=debug_N_examples)
-
+        logger.debug(f"Total time to apply P model: {time.time() - start_P:0.2f} s")
         if self.ncomps == 3:
+            start_S = time.time()
             self.__apply_to_one_phase(self.s_detector, self.dataloader.process_3c_S, 
                                       files[0], outdir, debug_N_examples=debug_N_examples)
+            logger.debug(f"Total time to apply S model: {time.time() - start_S:0.2f} s")
 
         ### Save the station meta info (including gaps) to a file in the same dir as the post probs. ###
         ### Only need one file per station/day pair ###
         meta_outfile_name =  self.dataloader.make_outfile_name(files[0], outdir)
         self.dataloader.write_data_info(meta_outfile_name)
+        logger.debug(f"Total run time for day: {time.time() - start_total:0.2f} s")
 
     def __apply_to_one_phase(self, detector, proc_func, file_for_name, outdir, debug_N_examples=-1):
         """Format continuous data and apply phase detector. Write posterior probabilities to disk.
@@ -264,12 +270,13 @@ class ApplyDetector():
             debug_N_examples (int, optional):  Number of waveform segments to pass to the phase detector, use 
             all inputs if -1. Defaults to -1.
         """
+        starttime = time.time()
         data, start_pad_npts, end_pad_npts = self.dataloader.format_continuous_for_unet(self.window_length,
                                                             self.sliding_interval,
                                                             proc_func,
                                                             normalize=True
                                                             )
-
+        logger.debug(f"Time to format continuous data for UNET: {time.time() - starttime:0.2f} s")
         probs_outfile_name = detector.make_outfile_name(file_for_name, outdir)
 
         if debug_N_examples > 0:
