@@ -6,6 +6,7 @@ from obspy.core.util.attribdict import AttribDict
 import os
 import json
 import pytest
+import datetime
 from copy import deepcopy
 
 examples_dir = '/uufs/chpc.utah.edu/common/home/u1072028/PycharmProjects/seis_proc_dl/seis_proc_dl/pytests/example_files'
@@ -26,13 +27,17 @@ apply_detector_config = {"paths":{
                             "min_torch_threads":2,
                             "min_presigmoid_value":-70,
                             "batchsize":256,
-                            "use_openvino":False
+                            "use_openvino":False,
+                            "post_probs_file_type":"MSEED"
                         },
                         "dataloader":{
                             "store_N_seconds":10,
                             #"expected_file_duration_s":3600,
                             "min_signal_percent":0,
                         }}
+
+apply_detector_config_npz = deepcopy(apply_detector_config)
+apply_detector_config_npz["unet"]["post_probs_file_type"] = "NP"
 
 class TestApplyDetector():
     """ These tests are pretty slow to run b/c applying the detector to 256 examples"""
@@ -115,6 +120,51 @@ class TestApplyDetector():
         os.remove(expected_p_probs_file)
         os.remove(expected_json_file)
 
+    def test_apply_to_file_day_1c_save_npz(self):
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config_npz)
+        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+                                  debug_N_examples=256)
+        
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        data = np.load(expected_p_probs_file)['probs']
+        assert data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert data.max() <= 100 and data.max() >= 0 
+        assert not os.path.exists(f"{examples_dir}/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+        expected_json_file = f"{apply_detectors_outdir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"        
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_file_day_1c_no_thread_limit(self):
+        no_limit_config = deepcopy(apply_detector_config)
+        no_limit_config["unet"]["min_torch_threads"] = -1
+        applier = apply_detectors.ApplyDetector(1, no_limit_config)
+        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+                                  debug_N_examples=256)
+        
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() >= 0 
+        assert probs_st[0].stats.station == "YWB"
+        assert not os.path.exists(f"{examples_dir}/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+        expected_json_file = f"{apply_detectors_outdir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"        
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
     def test_apply_to_file_day_3c(self):
         applier = apply_detectors.ApplyDetector(3, apply_detector_config)
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
@@ -147,6 +197,138 @@ class TestApplyDetector():
         os.remove(expected_p_probs_file)
         os.remove(expected_s_probs_file)
         os.remove(expected_json_file)
+
+    def test_apply_to_file_day_3c_npz(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config_npz)
+        files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
+        applier.apply_to_one_file(files,
+                                  debug_N_examples=256)
+        
+        # P Probs - 3c name should have E or 1 channel
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        # S Probs - 3c name should have E or 1 channel
+        expected_s_probs_file = f"{apply_detectors_outdir}/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        # Meta data file - 3c name should have E or 1 channel
+        expected_json_file = f"{apply_detectors_outdir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+    def test_get_station_dates_1c(self):
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config)
+        start, end = applier.get_station_dates(2002, "YWB", "EHZ")
+        # Available Channels:
+	    # ..EHZ       100.0 Hz  2002-09-04 to 2010-04-30
+	    # ..EHZ       100.0 Hz  1997-08-03 to 2002-09-03
+        assert start.strftime("%Y/%m/%d") == "1997/08/03"
+        assert end.strftime("%Y/%m/%d") == "2010/04/30"
+
+    def test_get_station_dates_3c(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start, end = applier.get_station_dates(2002, "YMR", "HH")
+        # Available Channels:
+	    # ..HH[ZNE]   100.0 Hz  1998-11-01 to 2010-08-17
+        assert start.strftime("%Y/%m/%d") == "1998/11/01"
+        assert end.strftime("%Y/%m/%d") == "2010/08/17"
+
+    def test_get_station_dates_file_dne(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start, end = applier.get_station_dates(2002, "YDD", "HH")
+        assert start is None
+        assert end is None
+
+    def test_get_station_dates_invalid_channel(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start, end = applier.get_station_dates(2002, "YMR", "EH")
+        assert start is None
+        assert end is None
+
+    def test_get_station_dates_no_end(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start, end = applier.get_station_dates(2022, "YMR", "HH?")
+        # Available Channels:
+	    # .01.HH[ZNE]   100.0 Hz  2013-04-01 to None
+        assert start.strftime("%Y/%m/%d") == "2013/04/01"
+        assert end is None
+
+    def test_get_station_dates_ncomps_change_3C(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start, end = applier.get_station_dates(2002, "YJC", "EH?")
+        # Available Channels:
+	    # ..EHE       100.0 Hz  1994-12-22 to 2002-08-29
+	    # ..EHN       100.0 Hz  1993-10-26 to 2002-08-29
+        assert start.strftime("%Y/%m/%d") == "1993/10/26"
+        assert end.strftime("%Y/%m/%d") == "2002/08/29"
+
+    def test_get_station_dates_ncomps_change_1C(self):
+            applier = apply_detectors.ApplyDetector(1, apply_detector_config)
+            start, end = applier.get_station_dates(2002, "YJC", "EHZ")
+            # Available Channels:
+            # ..EHZ       100.0 Hz  2002-08-29 to 2010-04-30
+            # ..EHZ       100.0 Hz  1994-07-16 to 2002-08-28
+            assert start.strftime("%Y/%m/%d") == "1994/07/16"
+            assert end.strftime("%Y/%m/%d") == "2010/04/30"
+
+    def test_validate_run_date_no_start(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start, end = None, None
+        current = datetime.datetime(2023, 1, 1)
+        assert not applier.validate_run_date(current, start, end)
+
+    def test_validate_run_date_no_end_valid(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start = datetime.datetime(2012, 1, 1)
+        end = None
+        current = datetime.datetime(2023, 1, 1)
+        assert applier.validate_run_date(current, start, end)
+
+    def test_validate_run_date_no_end_invalid(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start = datetime.datetime(2012, 1, 1)
+        end = None
+        current = datetime.datetime(2011, 12, 31)
+        assert not applier.validate_run_date(current, start, end)
+
+    def test_validate_run_date_has_end_valid(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start = datetime.datetime(2012, 1, 1)
+        end = datetime.datetime(2023, 6, 1)
+        current = datetime.datetime(2023, 1, 1)
+        assert applier.validate_run_date(current, start, end)
+
+    def test_validate_run_date_has_end_invalid(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        start = datetime.datetime(2012, 1, 1)
+        end = datetime.datetime(2022, 6, 1)
+        current = datetime.datetime(2023, 12, 31)
+        assert not applier.validate_run_date(current, start, end)
+
+    def test_apply_to_multiple_days_1c_outside_station_dates(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        # Available Channels:
+	    # ..EHE       100.0 Hz  1994-12-22 to 2002-08-29
+	    # ..EHN       100.0 Hz  1993-10-26 to 2002-08-29
+        # This will throw an error if it does not exit appropriately because these miniseed files don't exist
+        # TODO: I could do this test better
+        applier.apply_to_multiple_days("YJC", "EH?", 2002, 10, 1, 2, debug_N_examples=256)
+
+    def test_apply_to_multiple_days_1c_new_year(self):
+            pass
 
     def test_apply_to_multiple_days_1c(self):
         applier = apply_detectors.ApplyDetector(1, apply_detector_config)
@@ -194,6 +376,50 @@ class TestApplyDetector():
         assert abs(probs_st[0].stats.starttime - (UTC('2002-01-02') - 10)) < 0.01
         assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01
         assert probs_st[0].stats.starttime == UTC(json_dict['starttime'])
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_1c_npz(self):
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config_npz)
+        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 1, 2, debug_N_examples=256)
+
+        # Day 1
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs.max() <= 100 and probs.max() >= 0 
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs.max() <= 100 and probs.max() >= 0 
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be 10 s of data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01
 
         os.remove(expected_p_probs_file)
         os.remove(expected_json_file)
@@ -264,6 +490,66 @@ class TestApplyDetector():
         assert json_dict['channel'] == "HH?"
 
         assert probs_st[0].stats.starttime == UTC(json_dict['starttime'])
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01 
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_3c_npz(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config_npz)
+        applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 1, 2, debug_N_examples=256)
+        
+        # Day 1
+        # P Probs
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # S probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # S Probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
         assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01 
 
         os.remove(expected_p_probs_file)
@@ -562,7 +848,8 @@ class TestDataLoader():
     def test_load_data_3c_prepend_previous(self):
         fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'        # Load data succesfully
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'        
+        # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
         dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
         previous_endtime = dl.metadata['original_endtime']
@@ -1138,9 +1425,9 @@ class TestPhaseDetector():
         X = np.zeros((2, 1008, 1))
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", min_presigmoid_value=-70, device="cpu")
-        pdet.compile_openvino_model(X.shape[1])
+        pdet.compile_openvino_model(X.shape[1], X.shape[0], False)
         assert pdet.openvino_compiled is True
-        post_probs = pdet.apply_openvino_model_to_batch(X)
+        post_probs = pdet.apply_sync_openvino_model_to_batch(X)
         assert post_probs.shape == (2, 1008)
         assert np.max((post_probs*100).astype(int)) == 0
  
@@ -1148,9 +1435,9 @@ class TestPhaseDetector():
         X = np.zeros((1, 1008, 1))
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", min_presigmoid_value=-70, device="cpu")
-        pdet.compile_openvino_model(X.shape[1])
+        pdet.compile_openvino_model(X.shape[1], X.shape[0], False)
         assert pdet.openvino_compiled is True
-        post_probs = pdet.apply_openvino_model_to_batch(X)
+        post_probs = pdet.apply_sync_openvino_model_to_batch(X)
         assert post_probs.shape == (1, 1008)
         assert np.max((post_probs*100).astype(int)) == 0
  
@@ -1158,9 +1445,9 @@ class TestPhaseDetector():
         X = np.zeros((1, 1008, 1))
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", min_presigmoid_value=-70, device="cpu")
-        pdet.compile_openvino_model(X.shape[1])
+        pdet.compile_openvino_model(X.shape[1], X.shape[0], False)
         assert pdet.openvino_compiled is True
-        post_probs = pdet.apply_openvino_model_to_batch(X, center_window=250)
+        post_probs = pdet.apply_sync_openvino_model_to_batch(X, center_window=250)
         assert post_probs.shape == (1, 500)
         
     def test_trim_post_probs_no_trim(self):
@@ -1182,18 +1469,36 @@ class TestPhaseDetector():
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
         post_probs = np.arange(1, 1001)/1000
-        outfile = f"{examples_dir}/postprobs.mseed"
+        outfile = f"{examples_dir}/postprobs" #.mseed will be added in call
         stats = obspy.core.trace.Stats()
         stats.npts = 1000
         pdet.save_post_probs(outfile, post_probs, stats)
 
-        st = obspy.read(outfile)
+        st = obspy.read(outfile+".mseed")
         assert np.max(st[0].data[0:9]) == 0
         assert st[0].data[10] == 1
         assert st[0].data[-1] == 100
         assert st[0].stats.npts == 1000
 
-        os.remove(outfile)
+        os.remove(outfile+".mseed")
+
+    def test_save_probs_npz(self):
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu", 
+                                             post_probs_file_type="NP")
+        post_probs = np.arange(1, 1001)/1000
+        outfile = f"{examples_dir}/postprobs" #.mseed will be added in call
+        stats = obspy.core.trace.Stats()
+        stats.npts = 1000
+        pdet.save_post_probs(outfile, post_probs, stats)
+
+        data = np.load(outfile+".npz")["probs"]
+        assert np.max(data[0:9]) == 0
+        assert data[10] == 1
+        assert data[-1] == 100
+        assert stats.npts == 1000
+
+        os.remove(outfile+".npz")
 
     def test_flatten_post_probs(self):
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
@@ -1206,7 +1511,7 @@ class TestPhaseDetector():
         data = np.zeros((11, 1008, 1))
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
-        post_probs = pdet.apply(data, batchsize=2)
+        post_probs = pdet.apply_sync(data, batchsize=2)
         assert post_probs.shape == (11, 1008)
         # Make sure there aren't any examples with all zeros (like they were skipped)
         assert len(np.unique(np.where(post_probs == np.zeros((1, 1008)))[0])) == 0
@@ -1215,29 +1520,55 @@ class TestPhaseDetector():
         data = np.zeros((11, 1008, 1))
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
-        post_probs = pdet.apply(data, batchsize=2, center_window=250)
+        post_probs = pdet.apply_sync(data, batchsize=2, center_window=250)
         assert post_probs.shape == (11, 500)
         # Make sure there aren't any examples with all zeros (like they were skipped)
         assert len(np.unique(np.where(post_probs == np.zeros((1, 500)))[0])) == 0
 
     def test_apply_openvino_to_continous_no_center_window(self):
         data = np.zeros((11, 1008, 1))
+        bs = 2
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
-        pdet.compile_openvino_model(data.shape[1])
+        pdet.compile_openvino_model(data.shape[1], bs, False)
         assert pdet.openvino_compiled is True
-        post_probs = pdet.apply(data, batchsize=2)
+        post_probs = pdet.apply_sync(data, batchsize=bs)
         assert post_probs.shape == (11, 1008)
         # Make sure there aren't any examples with all zeros (like they were skipped)
         assert len(np.unique(np.where(post_probs == np.zeros((1, 1008)))[0])) == 0
 
     def test_apply_openvino_to_continous_center_window(self):
         data = np.zeros((11, 1008, 1))
+        bs = 2
         model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
-        pdet.compile_openvino_model(data.shape[1])
+        pdet.compile_openvino_model(data.shape[1], bs, False)
         assert pdet.openvino_compiled is True
-        post_probs = pdet.apply(data, batchsize=2, center_window=250)
+        post_probs = pdet.apply_sync(data, batchsize=bs, center_window=250)
+        assert post_probs.shape == (11, 500)
+        # Make sure there aren't any examples with all zeros (like they were skipped)
+        assert len(np.unique(np.where(post_probs == np.zeros((1, 500)))[0])) == 0
+
+    def test_apply_async_openvino_to_continous_no_center_window(self):
+        data = np.zeros((11, 1008, 1))
+        bs = 2
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
+        pdet.compile_openvino_model(data.shape[1], bs, True)
+        assert pdet.openvino_compiled is True
+        post_probs = pdet.apply_async_openvino(data, batchsize=bs)
+        assert post_probs.shape == (11, 1008)
+        # Make sure there aren't any examples with all zeros (like they were skipped)
+        assert len(np.unique(np.where(post_probs == np.zeros((1, 1008)))[0])) == 0
+
+    def test_apply_async_openvino_to_continous_center_window(self):
+        data = np.zeros((11, 1008, 1))
+        bs = 2
+        model_file = f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
+        pdet.compile_openvino_model(data.shape[1], bs, True)
+        assert pdet.openvino_compiled is True
+        post_probs = pdet.apply_async_openvino(data, batchsize=bs, center_window=250)
         assert post_probs.shape == (11, 500)
         # Make sure there aren't any examples with all zeros (like they were skipped)
         assert len(np.unique(np.where(post_probs == np.zeros((1, 500)))[0])) == 0
@@ -1247,7 +1578,7 @@ class TestPhaseDetector():
         pdet = apply_detectors.PhaseDetector(model_file, 1, "P", device="cpu")
         file1 = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         outfile = pdet.make_outfile_name(file1, examples_dir)
-        assert os.path.basename(outfile) == 'probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        assert os.path.basename(outfile) == 'probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z'
         assert os.path.dirname(outfile) == examples_dir
 
     def test_make_outfile_name_3c(self):
@@ -1255,7 +1586,7 @@ class TestPhaseDetector():
         pdet = apply_detectors.PhaseDetector(model_file, 3, "P", device="cpu")
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         outfile = pdet.make_outfile_name(file1, examples_dir)
-        assert os.path.basename(outfile) == 'probs.P__WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        assert os.path.basename(outfile) == 'probs.P__WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z'
         assert os.path.dirname(outfile) == examples_dir        
 
     def test_get_continous_post_probs(self):
@@ -1271,15 +1602,19 @@ class TestPhaseDetector():
         # output should be small with zeros input
         assert np.max(output) < 0.01 
 
-apply_openvino_detector_config = deepcopy(apply_detector_config)
-apply_openvino_detector_config["unet"]["use_openvino"] = True
+apply_sync_openvino_detector_config = deepcopy(apply_detector_config)
+apply_sync_openvino_detector_config["unet"]["use_openvino"] = True
+apply_sync_openvino_detector_config["unet"]["use_async"] = False
 
-class TestApplyDetectorOpenVino():
+apply_sync_openvino_detector_config_npz = deepcopy(apply_sync_openvino_detector_config)
+apply_sync_openvino_detector_config_npz["unet"]["post_probs_file_type"] = "NP"
+
+class TestApplyDetectorSyncronousOpenVino():
     """Use OpenVino instead of Torch. 
        These tests are pretty slow to run b/c applying the detector to 256 examples"""
          
     def test_init_1c(self):
-        applier = apply_detectors.ApplyDetector(1, apply_openvino_detector_config)
+        applier = apply_detectors.ApplyDetector(1, apply_sync_openvino_detector_config)
         assert applier.data_dir == examples_dir
         assert applier.outdir == f"{examples_dir}/applydetector_results"
         assert applier.window_length == 1008
@@ -1290,6 +1625,7 @@ class TestApplyDetectorOpenVino():
         assert applier.min_presigmoid_value == -70
         assert applier.min_torch_threads == 2
         assert applier.use_openvino is True
+        assert applier.use_async is False
         assert applier.p_model_file == f"{models_path}/oneCompPDetectorMEW_model_022.pt"
         assert applier.s_model_file == None
         assert applier.dataloader.store_N_seconds == 10
@@ -1298,6 +1634,7 @@ class TestApplyDetectorOpenVino():
         assert applier.p_detector.min_presigmoid_value == -70
         assert applier.p_detector.unet is not None
         assert applier.p_detector.openvino_compiled is True
+        assert applier.p_detector.use_openvino_async is False
         assert applier.p_detector.phase_type == "P"
         assert applier.s_detector == None
         assert applier.p_proc_func.__qualname__ == "DataLoader.process_1c_P"
@@ -1307,7 +1644,7 @@ class TestApplyDetectorOpenVino():
         #assert applier.expected_file_duration_s == 3600
 
     def test_init_3c(self):
-        applier = apply_detectors.ApplyDetector(3, apply_openvino_detector_config)
+        applier = apply_detectors.ApplyDetector(3, apply_sync_openvino_detector_config)
         assert applier.data_dir == examples_dir
         assert applier.outdir == f"{examples_dir}/applydetector_results"
         assert applier.window_length == 1008
@@ -1318,6 +1655,7 @@ class TestApplyDetectorOpenVino():
         assert applier.min_presigmoid_value == -70
         assert applier.min_torch_threads == 2
         assert applier.use_openvino is True
+        assert applier.use_async is False
         assert applier.p_model_file == f"{models_path}/pDetectorMew_model_026.pt"
         assert applier.s_model_file == f"{models_path}/sDetector_model032.pt"
         assert applier.dataloader.store_N_seconds == 10
@@ -1326,9 +1664,11 @@ class TestApplyDetectorOpenVino():
         assert applier.p_detector.min_presigmoid_value == -70
         assert applier.p_detector.unet is not None
         assert applier.p_detector.openvino_compiled is True
+        assert applier.p_detector.use_openvino_async is False
         assert applier.s_detector.unet is not None
         assert applier.p_detector.phase_type == "P"
         assert applier.s_detector.openvino_compiled is True
+        assert applier.s_detector.use_openvino_async is False
         assert applier.s_detector.phase_type == "S"
         assert applier.p_proc_func.__qualname__ == "DataLoader.process_3c_P"
         assert applier.ncomps == 3
@@ -1337,7 +1677,7 @@ class TestApplyDetectorOpenVino():
         #assert applier.expected_file_duration_s == 3600
 
     def test_apply_to_file_day_1c(self):
-        applier = apply_detectors.ApplyDetector(1, apply_openvino_detector_config)
+        applier = apply_detectors.ApplyDetector(1, apply_sync_openvino_detector_config)
         assert applier.p_detector.openvino_compiled is True
         applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                   debug_N_examples=256)
@@ -1360,7 +1700,7 @@ class TestApplyDetectorOpenVino():
         os.remove(expected_json_file)
 
     def test_apply_to_file_day_3c(self):
-        applier = apply_detectors.ApplyDetector(3, apply_openvino_detector_config)
+        applier = apply_detectors.ApplyDetector(3, apply_sync_openvino_detector_config)
         assert applier.p_detector.openvino_compiled is True
         assert applier.s_detector.openvino_compiled is True
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
@@ -1395,7 +1735,7 @@ class TestApplyDetectorOpenVino():
         os.remove(expected_json_file)
 
     def test_apply_to_multiple_days_1c(self):
-        applier = apply_detectors.ApplyDetector(1, apply_openvino_detector_config)
+        applier = apply_detectors.ApplyDetector(1, apply_sync_openvino_detector_config)
         assert applier.p_detector.openvino_compiled is True
         applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 1, 2, debug_N_examples=256)
 
@@ -1446,7 +1786,7 @@ class TestApplyDetectorOpenVino():
         os.remove(expected_json_file)
 
     def test_apply_to_multiple_days_3c(self):
-        applier = apply_detectors.ApplyDetector(3, apply_openvino_detector_config)
+        applier = apply_detectors.ApplyDetector(3, apply_sync_openvino_detector_config)
         assert applier.p_detector.openvino_compiled is True
         assert applier.s_detector.openvino_compiled is True
         applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 1, 2, debug_N_examples=256)
@@ -1519,15 +1859,584 @@ class TestApplyDetectorOpenVino():
         os.remove(expected_s_probs_file)
         os.remove(expected_json_file)
 
+    def test_apply_to_file_day_1c_save_npz(self):
+            applier = apply_detectors.ApplyDetector(1, apply_sync_openvino_detector_config_npz)
+            applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+                                    debug_N_examples=256)
+            
+            expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+            assert os.path.exists(expected_p_probs_file)
+            data = np.load(expected_p_probs_file)['probs']
+            assert data.shape == (256*500, )
+            # There is no data at the beginning of this trace => no detections
+            assert data.max() <= 100 and data.max() >= 0 
+            assert not os.path.exists(f"{examples_dir}/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+            expected_json_file = f"{apply_detectors_outdir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+            assert os.path.exists(expected_json_file)
+            with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+                json_dict = json.load(fp)
+            assert json_dict['channel'] == "EHZ"        
+
+            os.remove(expected_p_probs_file)
+            os.remove(expected_json_file)
+
+    def test_apply_to_file_day_3c_npz(self):
+        applier = apply_detectors.ApplyDetector(3, apply_sync_openvino_detector_config_npz)
+        files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
+        applier.apply_to_one_file(files,
+                                  debug_N_examples=256)
+        
+        # P Probs - 3c name should have E or 1 channel
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        # S Probs - 3c name should have E or 1 channel
+        expected_s_probs_file = f"{apply_detectors_outdir}/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        # Meta data file - 3c name should have E or 1 channel
+        expected_json_file = f"{apply_detectors_outdir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_1c_npz(self):
+        applier = apply_detectors.ApplyDetector(1, apply_sync_openvino_detector_config_npz)
+        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 1, 2, debug_N_examples=256)
+
+        # Day 1
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs.max() <= 100 and probs.max() >= 0 
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs.max() <= 100 and probs.max() >= 0 
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be 10 s of data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_3c_npz(self):
+        applier = apply_detectors.ApplyDetector(3, apply_sync_openvino_detector_config_npz)
+        applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 1, 2, debug_N_examples=256)
+        
+        # Day 1
+        # P Probs
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # S probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # S Probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01 
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+apply_async_openvino_detector_config = deepcopy(apply_detector_config)
+apply_async_openvino_detector_config["unet"]["use_openvino"] = True
+apply_async_openvino_detector_config["unet"]["use_async"] = True
+
+apply_async_openvino_detector_config_npz = deepcopy(apply_async_openvino_detector_config)
+apply_async_openvino_detector_config_npz["unet"]["post_probs_file_type"] = "NP"
+
+class TestApplyDetectorAsyncronousOpenVino():
+    """Use OpenVino instead of Torch. 
+       These tests are pretty slow to run b/c applying the detector to 256 examples"""
+         
+    def test_init_1c(self):
+        applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config)
+        assert applier.data_dir == examples_dir
+        assert applier.outdir == f"{examples_dir}/applydetector_results"
+        assert applier.window_length == 1008
+        assert applier.sliding_interval == 500
+        assert applier.center_window == 250
+        assert applier.window_edge_npts == 254
+        assert applier.device == "cpu"
+        assert applier.min_presigmoid_value == -70
+        assert applier.min_torch_threads == 2
+        assert applier.use_openvino is True
+        assert applier.use_async is True
+        assert applier.p_model_file == f"{models_path}/oneCompPDetectorMEW_model_022.pt"
+        assert applier.s_model_file == None
+        assert applier.dataloader.store_N_seconds == 10
+        assert applier.p_detector.torch_device.type == "cpu"
+        assert applier.p_detector.num_channels == 1
+        assert applier.p_detector.min_presigmoid_value == -70
+        assert applier.p_detector.unet is not None
+        assert applier.p_detector.openvino_compiled is True
+        assert applier.p_detector.use_openvino_async is True
+        assert applier.p_detector.phase_type == "P"
+        assert applier.s_detector == None
+        assert applier.p_proc_func.__qualname__ == "DataLoader.process_1c_P"
+        assert applier.ncomps == 1
+        assert applier.batchsize == 256
+        assert applier.min_signal_percent == 0
+        #assert applier.expected_file_duration_s == 3600
+
+    def test_init_3c(self):
+        applier = apply_detectors.ApplyDetector(3, apply_async_openvino_detector_config)
+        assert applier.data_dir == examples_dir
+        assert applier.outdir == f"{examples_dir}/applydetector_results"
+        assert applier.window_length == 1008
+        assert applier.sliding_interval == 500
+        assert applier.center_window == 250
+        assert applier.window_edge_npts == 254
+        assert applier.device == "cpu"
+        assert applier.min_presigmoid_value == -70
+        assert applier.min_torch_threads == 2
+        assert applier.use_openvino is True
+        assert applier.use_async is True
+        assert applier.p_model_file == f"{models_path}/pDetectorMew_model_026.pt"
+        assert applier.s_model_file == f"{models_path}/sDetector_model032.pt"
+        assert applier.dataloader.store_N_seconds == 10
+        assert applier.p_detector.torch_device.type == "cpu"
+        assert applier.p_detector.num_channels == 3
+        assert applier.p_detector.min_presigmoid_value == -70
+        assert applier.p_detector.unet is not None
+        assert applier.p_detector.openvino_compiled is True
+        assert applier.p_detector.use_openvino_async is True
+        assert applier.s_detector.unet is not None
+        assert applier.p_detector.phase_type == "P"
+        assert applier.s_detector.openvino_compiled is True
+        assert applier.s_detector.use_openvino_async is True
+        assert applier.s_detector.phase_type == "S"
+        assert applier.p_proc_func.__qualname__ == "DataLoader.process_3c_P"
+        assert applier.ncomps == 3
+        assert applier.batchsize == 256
+        assert applier.min_signal_percent == 0
+        #assert applier.expected_file_duration_s == 3600
+
+    def test_apply_to_file_day_1c(self):
+        applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config)
+        assert applier.p_detector.openvino_compiled is True
+        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+                                  debug_N_examples=256)
+        
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() >= 0 
+        assert probs_st[0].stats.station == "YWB"
+        assert not os.path.exists(f"{examples_dir}/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+        expected_json_file = f"{apply_detectors_outdir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"        
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_file_day_3c(self):
+        applier = apply_detectors.ApplyDetector(3, apply_async_openvino_detector_config)
+        assert applier.p_detector.openvino_compiled is True
+        assert applier.s_detector.openvino_compiled is True
+        files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
+        applier.apply_to_one_file(files,
+                                  debug_N_examples=256)
+        
+        # P Probs - 3c name should have E or 1 channel
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        # S Probs - 3c name should have E or 1 channel
+        expected_s_probs_file = f"{apply_detectors_outdir}/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_s_probs_file)
+        probs_st = obspy.read(expected_s_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        # Meta data file - 3c name should have E or 1 channel
+        expected_json_file = f"{apply_detectors_outdir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_1c(self):
+        applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config)
+        assert applier.p_detector.openvino_compiled is True
+        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 1, 2, debug_N_examples=256)
+
+        # Day 1
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() >= 0 
+        assert probs_st[0].stats.station == "YWB"
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(probs_st[0].stats.starttime - (UTC('2002-01-01'))) < 0.01
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+        assert probs_st[0].stats.starttime == UTC(json_dict['starttime'])
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() >= 0 
+        assert probs_st[0].stats.station == "YWB"
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be 10 s of data from the previous day
+        assert abs(probs_st[0].stats.starttime - (UTC('2002-01-02') - 10)) < 0.01
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01
+        assert probs_st[0].stats.starttime == UTC(json_dict['starttime'])
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_3c(self):
+        applier = apply_detectors.ApplyDetector(3, apply_async_openvino_detector_config)
+        assert applier.p_detector.openvino_compiled is True
+        assert applier.s_detector.openvino_compiled is True
+        applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 1, 2, debug_N_examples=256)
+        
+        # Day 1
+        # P Probs
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        assert abs(probs_st[0].stats.starttime - (UTC('2002-01-01'))) < 0.01
+
+        # S probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_s_probs_file)
+        probs_st = obspy.read(expected_s_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        assert abs(probs_st[0].stats.starttime - (UTC('2002-01-01'))) < 0.01
+
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+        assert probs_st[0].stats.starttime == UTC(json_dict['starttime'])
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file)
+        probs_st = obspy.read(expected_p_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"
+        # Check the starttime - should be 10 s of data from the previous day
+        assert abs(probs_st[0].stats.starttime - (UTC('2002-01-02') - 10)) < 0.01
+
+        # S Probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_s_probs_file)
+        probs_st = obspy.read(expected_s_probs_file)
+        assert probs_st[0].data.shape == (256*500, )
+        assert probs_st[0].data.max() <= 100 and probs_st[0].data.max() > 1
+        assert probs_st[0].stats.station == "YMR"       
+        # Check the starttime - should be 10 s of data from the previous day
+        assert abs(probs_st[0].stats.starttime - (UTC('2002-01-02') - 10)) < 0.01
+        
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        assert probs_st[0].stats.starttime == UTC(json_dict['starttime'])
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01 
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_file_day_1c_save_npz(self):
+            applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config_npz)
+            applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+                                    debug_N_examples=256)
+            
+            expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+            assert os.path.exists(expected_p_probs_file)
+            data = np.load(expected_p_probs_file)['probs']
+            assert data.shape == (256*500, )
+            # There is no data at the beginning of this trace => no detections
+            assert data.max() <= 100 and data.max() >= 0 
+            assert not os.path.exists(f"{examples_dir}/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed")
+            expected_json_file = f"{apply_detectors_outdir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+            assert os.path.exists(expected_json_file)
+            with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+                json_dict = json.load(fp)
+            assert json_dict['channel'] == "EHZ"        
+
+            os.remove(expected_p_probs_file)
+            os.remove(expected_json_file)
+
+    def test_apply_to_file_day_3c_npz(self):
+        applier = apply_detectors.ApplyDetector(3, apply_async_openvino_detector_config_npz)
+        files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
+                 f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
+        applier.apply_to_one_file(files,
+                                  debug_N_examples=256)
+        
+        # P Probs - 3c name should have E or 1 channel
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        # S Probs - 3c name should have E or 1 channel
+        expected_s_probs_file = f"{apply_detectors_outdir}/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        # Meta data file - 3c name should have E or 1 channel
+        expected_json_file = f"{apply_detectors_outdir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_1c_npz(self):
+        applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config_npz)
+        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 1, 2, debug_N_examples=256)
+
+        # Day 1
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs.max() <= 100 and probs.max() >= 0 
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        # There is no data at the beginning of this trace => no detections
+        assert probs.max() <= 100 and probs.max() >= 0 
+        assert not os.path.exists(f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz")
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "EHZ"
+
+        # Check the starttime - should be 10 s of data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_json_file)
+
+    def test_apply_to_multiple_days_3c_npz(self):
+        applier = apply_detectors.ApplyDetector(3, apply_async_openvino_detector_config_npz)
+        applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 1, 2, debug_N_examples=256)
+        
+        # Day 1
+        # P Probs
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # S probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/01/probs.S__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/01/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        # Check the starttime - should be no data from the previous day
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-01'))) < 0.01
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
+        # Day 2
+        expected_p_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.P__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_p_probs_file)
+        probs = np.load(expected_p_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+
+        # S Probs
+        expected_s_probs_file = f"{apply_detectors_outdir}/2002/01/02/probs.S__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.npz"
+        assert os.path.exists(expected_s_probs_file)
+        probs = np.load(expected_s_probs_file)['probs']
+        assert probs.shape == (256*500, )
+        assert probs.max() <= 100 and probs.max() > 1
+        
+        # Json File
+        expected_json_file = f"{apply_detectors_outdir}/2002/01/02/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HH?"
+
+        assert abs(UTC(json_dict['starttime']) - (UTC('2002-01-02') - 10)) < 0.01 
+
+        os.remove(expected_p_probs_file)
+        os.remove(expected_s_probs_file)
+        os.remove(expected_json_file)
+
 if __name__ == '__main__':
-    from seis_proc_dl.pytests.test_apply_detectors_unit import TestApplyDetector
+    from seis_proc_dl.pytests.test_apply_detectors_unit import TestApplyDetectorOpenVino
     dltester = TestApplyDetector()
-    dltester.test_apply_to_multiple_days_1c()
+    dltester.test_apply_to_multiple_days_3c_npz()
 
     # from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
     # dltester = TestDataLoader()
-    # dltester.test_load_3c_data_skip_day()
+    # dltester.test_load_3c_too_long()
   
     # from seis_proc_dl.pytests.test_apply_detectors_unit import TestPhaseDetector
     # pdtester = TestPhaseDetector()
-    # pdtester.test_get_continous_post_probs()
+    # pdtester.test_save_probs_npz()
