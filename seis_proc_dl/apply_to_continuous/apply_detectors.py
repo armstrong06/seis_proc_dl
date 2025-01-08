@@ -663,11 +663,14 @@ class PhaseDetector():
         # post_prob_name = f"probs.{self.phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
 
         post_prob_name = f"probs.{self.phase_type}__{Path(wf_filename).stem}"
-        # {os.path.basename(wf_filename)}"
-
+        # {os.path.basename(wf_filename).split(".mseed")[0]}
+        # I think I need to move this lock, maybe by the imports?
         if not os.path.exists(dir):
             logger.debug(f"Making directory {dir}")
-            os.makedirs(dir)
+            try:
+                os.makedirs(dir)
+            except:
+                logger.info(f"{dir} likely created by another job...")
 
         outfile = os.path.join(dir, post_prob_name)
 
@@ -1291,7 +1294,10 @@ class DataLoader():
 
         if not os.path.exists(dir):
             logger.debug(f"Making directory {dir}")
-            os.makedirs(dir)
+            try:
+                os.makedirs(dir)
+            except:
+                logger.info(f"{dir} likely created by another job...")
 
         outfile = os.path.join(dir, post_prob_name)
 
