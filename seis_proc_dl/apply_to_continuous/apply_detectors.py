@@ -90,44 +90,6 @@ class ApplyDetector():
         else:
             raise ValueError("Invalid number of components")
 
-    ### Constructor without config ###
-    # def __init__(self, 
-    #              ncomps, 
-    #              data_dir,
-    #              p_model_file, 
-    #              s_model_file=None,
-    #              window_length=1008,
-    #              sliding_interval=500,
-    #              device='cpu',
-    #              min_torch_threads=2,
-    #              min_presigmoid_value=-70
-    #              ) -> None:
-        
-    #     self.dataloader = DataLoader()
-    #     self.p_detector = None
-    #     self.s_detector = None
-    #     self.p_proc_func = None
-
-    #     self.data_dir = data_dir
-    #     self.p_model_file = p_model_file
-    #     self.s_model_file = s_model_file
-    #     self.window_length = window_length
-    #     self.sliding_interval = sliding_interval
-    #     self.center_window = sliding_interval//2
-    #     self.window_edge_npts = (window_length-sliding_interval)//2
-    #     self.device = device
-    #     self.min_torch_threads = min_torch_threads
-    #     self.min_presigmoid_value = min_presigmoid_value
-
-    #     if ncomps == 1:
-    #         self.__init_1c()
-    #     elif ncomps == 3:
-    #         if s_model_file is None:
-    #             raise ValueError("S Detector cannot be None for 3C")
-    #         self.__init_3c()
-    #     else:
-    #         raise ValueError("Invalid number of components")
-
     def __init_1c(self):
         """Initialize the phase detector for 1 component P picker
         """
