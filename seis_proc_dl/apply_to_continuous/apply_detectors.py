@@ -65,6 +65,7 @@ class ApplyDetector():
         self.min_presigmoid_value = config.unet.min_presigmoid_value
         self.batchsize = config.unet.batchsize
         self.use_openvino = config.unet.use_openvino
+        self.post_probs_file_type = config.unet.post_probs_file_type
         #self.expected_file_duration_s = config.dataloader.expected_file_duration_s
         self.min_signal_percent = config.dataloader.min_signal_percent
 
@@ -127,7 +128,7 @@ class ApplyDetector():
                             "P",
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
-                            num_torch_threads=self.min_torch_threads)
+                            post_probs_file_type=self.post_probs_file_type)
         if self.use_openvino:
             self.p_detector.compile_openvino_model(self.window_length)
         self.p_proc_func = self.dataloader.process_1c_P
@@ -140,7 +141,7 @@ class ApplyDetector():
                             "P",
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
-                            num_torch_threads=self.min_torch_threads)
+                            post_probs_file_type=self.post_probs_file_type)
         if self.use_openvino:
             self.p_detector.compile_openvino_model(self.window_length)
         self.s_detector = PhaseDetector(self.s_model_file,
@@ -148,7 +149,7 @@ class ApplyDetector():
                             "S",
                             min_presigmoid_value=self.min_presigmoid_value,
                             device=self.device,
-                            num_torch_threads=self.min_torch_threads)
+                            post_probs_file_type=self.post_probs_file_type)
         if self.use_openvino:
             self.s_detector.compile_openvino_model(self.window_length)
         self.p_proc_func = self.dataloader.process_3c_P
@@ -277,7 +278,7 @@ class PhaseDetector():
                  phase_type,
                  min_presigmoid_value=None, 
                  device="cpu",
-                 num_torch_threads=2):
+                 post_probs_file_type="MSEED"):
         """Load and apply UNet phase detectors. Save the posterior probabilities to disk.
 
         Args:
@@ -301,7 +302,8 @@ class PhaseDetector():
         self.openvino_compiled = False
         self.__init_model(num_channels, model_to_load)
         self.num_channels = num_channels
-
+        self.post_probs_file_type = post_probs_file_type    
+        
     def __init_model(self, num_channels, model_to_load):
         """Load the model weights and put in eval mode.
 
@@ -476,8 +478,16 @@ class PhaseDetector():
         """
         return post_probs.flatten()
 
+    def save_post_probs(self, outfile, post_probs, stats):
+        if self.post_probs_file_type == "MSEED":
+            self.save_post_probs_miniseed(outfile, post_probs, stats)
+        elif self.post_probs_file_type == "NP":
+            self.save_post_probs_numpy(outfile, post_probs)
+        else:
+            raise ValueError("post_probs_file_type must be NP or MSEED")
+
     @staticmethod
-    def save_post_probs(outfile, post_probs, stats):
+    def save_post_probs_miniseed(outfile, post_probs, stats):
         """Write the continuous posterior probabilities to disk in miniseed format with 2 digits of precision.
         Posterior probabilities will be between 0 and 99.
 
@@ -487,13 +497,29 @@ class PhaseDetector():
             stats (object): Dictionary object containing the station information, start time, and number of points.
         """
         assert post_probs.shape[0] == stats['npts'], "posterior probability is the wrong shape"
+        outfile = outfile + ".mseed"
         logger.debug("writing %s", outfile)
         st = obspy.Stream()
         tr = obspy.Trace()
-        tr.data = (post_probs*100).astype(np.int16)
+        # I have no idea why, but making the data int32 and not specifying the miniseed encoding makes the  
+        # smallest output files (5.3 MB) compared to saving as using int32 encoding (34 MB) or int16 (17 MB).
+        # Must be some extra compression?
+        tr.data = (post_probs*100).astype(np.int32)
         tr.stats = Stats(stats)
         st += tr
-        st.write(outfile, format="MSEED")
+        st.write(outfile, format="MSEED") #, encoding="INT16")
+
+    @staticmethod
+    def save_post_probs_numpy(outfile, post_probs):
+        """Write the continuous posterior probabilities to disk in npz format with 2 digits of precision.
+        Posterior probabilities will be between 0 and 99.
+
+        Args:
+            outfile (str): Path and name of the output file.
+            post_probs (np.array): Flattened (1D) posterior probabilities
+        """
+        data = (post_probs*100).astype(np.uint8)
+        np.savez_compressed(outfile, probs=data)
         
     @staticmethod
     def trim_post_probs(post_probs, start_pad, end_pad, edge_n_samples):
@@ -525,14 +551,14 @@ class PhaseDetector():
 
     def make_outfile_name(self, wf_filename, dir):
         """Given an input file name, create the output path for the posterior probabilities.
-        Makes the output directory if it does not exist.
+        Makes the output directory if it does not exist. Does not include the file format.
 
         Args:
             wf_filename (str): Input file name in format NET.STAT.LOC.CHAN__START__END.mseed
             dir (str): Path to write the output file to. 
 
         Returns:
-            str: Output path and filename. Filename in format probs.PHASE__NET.STAT.LOC.CHAN__START__END.mseed.
+            str: Output path and filename. Filename in format probs.PHASE__NET.STAT.LOC.CHAN__START__END.
         """
         # split = re.split(r"__|T", os.path.basename(wf_filename))
         # chan = "Z"
@@ -540,7 +566,8 @@ class PhaseDetector():
         #     chan = ""
         # post_prob_name = f"probs.{self.phase_type}__{split[0][0:-1]}{chan}__{split[1]}__{split[3]}.mseed"
 
-        post_prob_name = f"probs.{self.phase_type}__{os.path.basename(wf_filename)}"
+        post_prob_name = f"probs.{self.phase_type}__{Path(wf_filename).stem}"
+        # {os.path.basename(wf_filename)}"
 
         if not os.path.exists(dir):
             logger.debug(f"Making directory {dir}")
