@@ -336,6 +336,24 @@ class ApplyDetector():
         
         return False
 
+    @staticmethod
+    def write_dates_to_file(basedir, date_type, stat, chan, dates):
+        if date_type not in ["missing", "loading_error"]:
+            raise ValueError("Unexpected date_type to write to file")
+
+        outdir = os.path.join(basedir, date_type)
+        if not os.path.exists(dir):
+            logger.debug(f"Making directory {outdir}")
+            try:
+                os.makedirs(dir)
+            except:
+                logger.info(f"{outdir} likely created by another job...")
+
+        filename = f"{stat}.{chan}.txt"
+        with open(os.path.join(outdir, filename), "a") as f:
+            for missing_date in dates:
+                f.write(f"{missing_date}\n")
+
 class PhaseDetector():
     def __init__(self, 
                  model_to_load, 
