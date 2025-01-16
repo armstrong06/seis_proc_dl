@@ -751,6 +751,12 @@ class DataLoader():
         self.previous_endtime = None
         self.store_N_seconds = store_N_seconds
 
+    def error_in_loading(self):
+        self.reset_loader()
+        # If skipping a day, then there is no previous day for the next trace
+        self.reset_previous_day()
+        # TODO: Save gap/error info
+
     def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1, expected_file_duration_s=86400):
         """Load miniseed files for a 3C station.
 
