@@ -165,6 +165,8 @@ class ApplyDetector():
 
         stat_startdate, stat_enddate = self.get_station_dates(year, stat, chan)
 
+        missing_dates = []
+        error_loading_dates = []
         ### Iterate over the specified number of days ###
         for _ in range(n_days):
             ### If starting in a new year, reload metadata
@@ -188,14 +190,23 @@ class ApplyDetector():
             ### If there are no files for that station/day, move to the next day ###
             if len(files) == 0:
                 logger.info(f'No data for {date_str} {stat} {chan}')
+                missing_dates.append(date_str)
+                # Reset dataloader
+                self.dataloader.error_in_loading()
                 continue
             elif (self.ncomps == 1 and len(files) != 1) or (self.ncomps ==3 and len(files) != 3):
                 logger.warning(f"Incorrect number of files found for {date_str} {stat} {chan}")
+                error_loading_dates.append(date_str)
+                # Reset dataloader
+                self.dataloader.error_in_loading()
                 continue 
 
             self.apply_to_one_file(files, date_outdir, debug_N_examples=debug_N_examples)
 
             date += delta
+
+        self.write_dates_to_file(self.outdir, "missing", stat, chan, missing_dates)
+        self.write_dates_to_file(self.outdir, "error_loading", stat, chan, error_loading_dates)
 
     def apply_to_one_file(self, files, outdir=None, debug_N_examples=-1):
         """Process one miniseed file and write posterior probability and data information to disk. Runs both 
