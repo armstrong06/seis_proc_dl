@@ -781,11 +781,14 @@ class DataLoader():
         self.previous_endtime = None
         self.store_N_seconds = store_N_seconds
 
-    def error_in_loading(self):
+    def error_in_loading(self, outfile=None):
+        # Save outfile info (only works if the data was able to be loaded in)
+        if outfile is not None:
+            self.write_data_info(outfile)
+
         self.reset_loader()
         # If skipping a day, then there is no previous day for the next trace
         self.reset_previous_day()
-        # TODO: Save gap/error info
 
     def load_3c_data(self, fileE, fileN, fileZ, min_signal_percent=1, expected_file_duration_s=86400):
         """Load miniseed files for a 3C station.
@@ -806,39 +809,45 @@ class DataLoader():
         # assert np.isin(re.split( "[.|__]", os.path.basename(fileN))[3], ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
         # assert np.isin(re.split( "[.|__]", os.path.basename(fileZ))[3], ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
 
-        st_E, gaps_E = self.load_channel_data(fileE, 
+        load_succeeded_E, st_E, gaps_E = self.load_channel_data(fileE, 
                                               min_signal_percent=min_signal_percent,
                                               expected_file_duration_s=expected_file_duration_s)
-        st_N, gaps_N = self.load_channel_data(fileN, 
+        load_succeeded_N, st_N, gaps_N = self.load_channel_data(fileN, 
                                               min_signal_percent=min_signal_percent,
                                               expected_file_duration_s=expected_file_duration_s)
-        st_Z, gaps_Z = self.load_channel_data(fileZ, 
+        load_succeeded_Z, st_Z, gaps_Z = self.load_channel_data(fileZ, 
                                               min_signal_percent=min_signal_percent,
                                               expected_file_duration_s=expected_file_duration_s)
-
-        # If one of the channels was skipped, return the entire day as a gap
-        #TODO: IF the vertical comp still has enough signal, should I keep it?
-        # When an entire day is removed, remove orientation from gap channel info
-        if st_E is None:
-            gaps_E[0][3] = gaps_E[0][3][0:2] + "?"
-            self.gaps = gaps_E
-            # If skipping a day, then there is no previous day for the next trace
-            self.reset_previous_day()
-            return
-        elif st_N is None:
-            gaps_N[0][3] = gaps_N[0][3][0:2] + "?"
-            self.gaps = gaps_N
-            self.reset_previous_day()
-            return
-        elif st_Z is None:
-            gaps_Z[0][3] = gaps_Z[0][3][0:2] + "?"
-            self.gaps = gaps_Z
-            self.reset_previous_day()
-            return
 
         assert np.isin(st_E[0].stats.channel, ["EHE", "EH1", "BHE", "BH1", "HHE"]), "E file is incorrect"
         assert np.isin(st_N[0].stats.channel, ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
         assert np.isin(st_Z[0].stats.channel, ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
+
+        # # When an entire day is removed, remove orientation from gap channel info
+        # if not load_succeeded_Z:
+        #     gaps_Z[0][3] = gaps_Z[0][3][0:2] + "?"
+        #     self.gaps = gaps_Z
+        #     # self.reset_previous_day()
+        #     return False
+        # elif not load_succeeded_N:
+        #     gaps_N[0][3] = gaps_N[0][3][0:2] + "?"
+        #     self.gaps = gaps_N
+        #     # self.reset_previous_day()
+        #     return False
+        # elif not load_succeeded_E:
+        #     gaps_E[0][3] = gaps_E[0][3][0:2] + "?"
+        #     self.gaps = gaps_E
+        #     # If skipping a day, then there is no previous day for the next trace
+        #     # self.reset_previous_day()
+        #     return False
+
+        # Keep all gap information and store metadata - regardless if load failed
+        gaps = gaps_E + gaps_N + gaps_Z
+        self.gaps = gaps
+        self.store_meta_data(st_E[0].stats)
+        # If any loads failed, exit
+        if (not load_succeeded_Z) or (not load_succeeded_E) or (not load_succeeded_N):
+            return False
 
         starttimes = [st_E[0].stats.starttime, st_N[0].stats.starttime, st_Z[0].stats.starttime]
         endtimes = [st_E[0].stats.endtime, st_N[0].stats.endtime, st_Z[0].stats.endtime]
@@ -857,14 +866,12 @@ class DataLoader():
         cont_data[:, 1] = st_N[0].data
         cont_data[:, 2] = st_Z[0].data
 
-        gaps = gaps_E + gaps_N + gaps_Z
-
         self.continuous_data = cont_data
-        self.gaps = gaps
-        self.store_meta_data(st_E[0].stats)
         
         if self.store_N_seconds > 0:
             self.prepend_previous_data()
+
+        return True
 
     def load_1c_data(self, file, min_signal_percent=1, expected_file_duration_s=86400):
         """Load miniseed file for a 1C station.
@@ -879,26 +886,28 @@ class DataLoader():
 
         self.reset_loader()
 
-        st, gaps = self.load_channel_data(file, 
+        load_succeeded, st, gaps = self.load_channel_data(file, 
                                               min_signal_percent=min_signal_percent,
                                               expected_file_duration_s=expected_file_duration_s)
-        if st is None:
-            self.gaps = gaps
-            self.reset_previous_day()
-            return
+        
+        self.gaps = gaps
+        self.store_meta_data(st[0].stats, three_channels=False)
+
+        if not load_succeeded:
+            return False
         
         cont_data = np.zeros((st[0].stats.npts, 1))
         cont_data[:, 0] = st[0].data
 
         self.continuous_data = cont_data
-        self.gaps = gaps
-        self.store_meta_data(st[0].stats, three_channels=False)
 
         if self.store_N_seconds > 0:
             # Update continous data and the metadata to include the end of the previous trace
             # TODO: don't prepend previous data if the end of the previous day has been filled in because
             # of a gap
             self.prepend_previous_data()
+
+        return True
    
     def format_continuous_for_unet(self, unet_window_length, unet_sliding_interval, processing_function=None, normalize=True):
         """Formats and processes the continuous data for input into a phase detector.
@@ -1018,6 +1027,9 @@ class DataLoader():
             store_N_samples = int(self.store_N_seconds*self.metadata['sampling_rate'])
             self.previous_continuous_data = self.continuous_data[-store_N_samples:, :]
             self.previous_endtime = self.metadata['original_endtime']
+        elif self.store_N_seconds > 0 and self.continuous_data is None:
+            # If no continous data was loaded in, reset the previous day information
+            self.reset_previous_day()
         self.continuous_data = None
         self.metadata = None
         self.gaps = None
@@ -1078,7 +1090,7 @@ class DataLoader():
             max_duration_s (int, optional): Expected duration of the miniseed file in seconds. Defaults to 86400.
 
         Returns:
-        tupple: (Obspy Stream, list of gaps)
+        tupple: (bool, Obspy Stream, list of gaps)
         """ 
 
         logger.debug("loading %s", file)
@@ -1104,14 +1116,26 @@ class DataLoader():
         # If there is not enough signal in this day, skip the day
         total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
         max_npts = expected_file_duration_s*round(sampling_rate)
+        sufficient_data = True
         if (total_npts/max_npts)*100 < min_signal_percent:
             logger.warning(f"{os.path.basename(file)} does not have enough data, skipping")
+            sufficient_data = False
             # Return the entire file period as a gap
-            return None, [self.format_edge_gaps(st, desired_start, desired_end, entire_file=True)]
+            #return False, st, [self.format_edge_gaps(st, desired_start, desired_end, entire_file=True)]
 
         # Save gaps so I know to ignore any detections in that region later
         # Don't save gaps if they are smaller than 5 samples for 100 Hz, 2 samples for 40 Hz
         gaps = st.get_gaps(min_gap=0.05)
+
+        # Get start/end gaps for days without sufficient data and return
+        if not sufficient_data:
+            start_gap, end_gap = self.format_edge_gaps(st, desired_start, desired_end, interpolated=False)
+            if (start_gap != None) and (start_gap[5] - start_gap[4] >= 0.05):
+                gaps.insert(0, start_gap)
+            if (end_gap != None) and (end_gap[5] - end_gap[4] >= 0.05):
+                gaps += [end_gap]    
+            return False, st, gaps
+
         # Still need to interpolate the gaps if they are less than min_gap
         if len(st.get_gaps()) > 0:
             # Sometimes the gaps have different sampling rates and delta values, not totally sure why. 
@@ -1131,6 +1155,7 @@ class DataLoader():
         # Make sure the trace is the desired length (fill in ends if needed) 
         # Check for gaps at the start/end of the day and save if they exist
         start_gap, end_gap = self.format_edge_gaps(st, desired_start, desired_end)
+
         if start_gap is not None:
             # Don't save gaps less than 0.05 s (5 samples)
             if start_gap[5] - start_gap[4] >= 0.05:
@@ -1156,7 +1181,7 @@ class DataLoader():
             st[0].data = st[0].data[0:int(expected_file_duration_s*sampling_rate)]
         assert st[0].stats.endtime <= desired_end, "The end of the trace goes into the next day"
 
-        return st, gaps 
+        return True, st, gaps 
 
     def write_data_info(self, outpath):
         """Write the trace metadata and gap information to a json file. For each gap, 
