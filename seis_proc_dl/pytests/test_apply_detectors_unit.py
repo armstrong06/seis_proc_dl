@@ -100,9 +100,9 @@ class TestApplyDetector():
 
     def test_apply_to_file_day_1c(self):
         applier = apply_detectors.ApplyDetector(1, apply_detector_config)
-        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+        succeeded = applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                   debug_N_examples=256)
-        
+        assert succeeded
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
         probs_st = obspy.read(expected_p_probs_file)
@@ -120,11 +120,226 @@ class TestApplyDetector():
         os.remove(expected_p_probs_file)
         os.remove(expected_json_file)
 
+    def test_apply_to_file_day_1c_fail(self):
+        apply_detector_config_fail = deepcopy(apply_detector_config)
+        apply_detector_config_fail["dataloader"]["min_signal_percent"] = 99.5
+
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config_fail)
+        succeeded = applier.apply_to_one_file([f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'],
+                                  debug_N_examples=256)
+        assert not succeeded
+        assert applier.dataloader.metadata is None
+        assert applier.dataloader.continuous_data is None
+        assert applier.dataloader.previous_continuous_data is None
+        assert applier.dataloader.previous_endtime is None
+        assert applier.dataloader.gaps is None
+
+        expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert not os.path.exists(expected_p_probs_file)
+        expected_json_file = f"{apply_detectors_outdir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file)
+        with open(os.path.join(examples_dir, expected_json_file), "r") as fp:
+            json_dict = json.load(fp)
+        assert json_dict['channel'] == "HHZ"   
+        assert len(json_dict["gaps"]) == 1
+        # The start of the gap should not be the start time of the trace here, because the updated
+        # code stores the actual gaps and not the entire day as a gap
+        assert (UTC(json_dict['gaps'][0][1]) - UTC(json_dict['starttime'])) > 2*json_dict['dt']     
+        os.remove(expected_json_file)
+
+    def test_write_dates_to_file_missing(self):
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config)
+        applier.write_dates_to_file(apply_detectors_outdir,
+                                    "missing",
+                                    "YUF",
+                                    "EHZ",
+                                    ["2001/01/01", "2001/01/02"])
+        expected_error_file = f"{apply_detectors_outdir}/DataIssues/missing/YUF.EHZ.txt"
+        assert os.path.exists(expected_error_file)
+
+        cnt = 0
+        with open(expected_error_file, "r") as f:
+                    for line in f:
+                        if cnt == 0:
+                            assert line == "2001/01/01\n"
+                        elif cnt == 1:
+                            assert line == "2001/01/02\n"
+                        cnt += 1
+
+        assert cnt == 2
+        os.remove(expected_error_file)
+
+    def test_write_dates_to_file_file_error(self):
+            applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+            applier.write_dates_to_file(apply_detectors_outdir,
+                                        "file_error",
+                                        "YNR",
+                                        "HH",
+                                        ["2001/01/01", "2001/01/02"])
+            expected_error_file = f"{apply_detectors_outdir}/DataIssues/file_error/YNR.HH.txt"
+            assert os.path.exists(expected_error_file)
+
+            cnt = 0
+            with open(expected_error_file, "r") as f:
+                        for line in f:
+                            if cnt == 0:
+                                assert line == "2001/01/01\n"
+                            elif cnt == 1:
+                                assert line == "2001/01/02\n"
+                            cnt += 1
+
+            assert cnt == 2
+            os.remove(expected_error_file)
+
+    def test_write_dates_to_file_insufficient_data(self):
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config)
+        applier.write_dates_to_file(apply_detectors_outdir,
+                                    "insufficient_data",
+                                    "YUF",
+                                    "EHZ",
+                                    ["2001/01/01", "2001/01/02"])
+        expected_error_file = f"{apply_detectors_outdir}/DataIssues/insufficient_data/YUF.EHZ.txt"
+        assert os.path.exists(expected_error_file)
+
+        cnt = 0
+        with open(expected_error_file, "r") as f:
+                    for line in f:
+                        if cnt == 0:
+                            assert line == "2001/01/01\n"
+                        elif cnt == 1:
+                            assert line == "2001/01/02\n"
+                        cnt += 1
+
+        assert cnt == 2
+        os.remove(expected_error_file)
+
+    def test_write_dates_to_file_invalid_error(self):
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config)
+        with pytest.raises(ValueError):
+            applier.write_dates_to_file(apply_detectors_outdir,
+                                        "error",
+                                        "YUF",
+                                        "EHZ",
+                                        ["2001/01/01", "2001/01/02"])
+
+    def test_apply_to_multiple_days_missing(self):
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config)
+        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 3, 2, debug_N_examples=256)
+
+        assert applier.dataloader.metadata is None
+        assert applier.dataloader.continuous_data is None
+        assert applier.dataloader.previous_continuous_data is None
+        assert applier.dataloader.previous_endtime is None
+        assert applier.dataloader.gaps is None
+        expected_outdir_day1 = f"{apply_detectors_outdir}/2002/01/03"
+        expected_outdir_day2 = f"{apply_detectors_outdir}/2002/01/04"
+        expected_p_probs_file_day1 = f"{expected_outdir_day1}/probs.P__WY.YWB..EHZ__2002-01-03T00:00:00.000000Z__2002-01-04T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file_day1)
+        expected_json_file_day1 = f"{expected_outdir_day1}/WY.YWB..EHZ__2002-01-03T00:00:00.000000Z__2002-01-04T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file_day1)        
+        expected_p_probs_file_day2 = f"{expected_outdir_day2}/probs.P__WY.YWB..EHZ__2002-01-04T00:00:00.000000Z__2002-01-05T00:00:00.000000Z.mseed"
+        assert not os.path.exists(expected_p_probs_file_day2)
+        expected_json_file_day2 = f"{expected_outdir_day2}/WY.YWB..EHZ__2002-01-04T00:00:00.000000Z__2002-01-05T00:00:00.000000Z.json"
+        assert not os.path.exists(expected_json_file_day2)
+
+        expected_error_file = f"{apply_detectors_outdir}/DataIssues/missing/YWB.EHZ.txt"
+        assert os.path.exists(expected_error_file)
+
+        with open(expected_error_file, "r") as f:
+            for line in f:
+                assert line == "2002/01/04\n"
+
+        os.remove(expected_error_file)
+        os.remove(expected_p_probs_file_day1)
+        os.remove(expected_json_file_day1)
+
+    def test_apply_to_multiple_days_file_error(self):
+            applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+            applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 2, 2, debug_N_examples=256)
+
+            # Make sure reset worked
+            assert applier.dataloader.metadata is None
+            assert applier.dataloader.continuous_data is None
+            assert applier.dataloader.previous_continuous_data is None
+            assert applier.dataloader.previous_endtime is None
+            assert applier.dataloader.gaps is None
+
+            expected_outdir_day1 = f"{apply_detectors_outdir}/2002/01/02"
+            expected_outdir_day2 = f"{apply_detectors_outdir}/2002/01/03"
+
+            # Day 1 - Succeeded
+            expected_p_probs_file_day1 = f"{expected_outdir_day1}/probs.P__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+            assert os.path.exists(expected_p_probs_file_day1)
+            expected_s_probs_file_day1 = f"{expected_outdir_day1}/probs.S__WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+            assert os.path.exists(expected_s_probs_file_day1)
+            expected_json_file_day1 = f"{expected_outdir_day1}/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+            assert os.path.exists(expected_json_file_day1)   
+
+            # Day 2 - Fails     
+            expected_p_probs_file_day2 = f"{expected_outdir_day2}/probs.P__WY.YMR..HHE__2002-01-03T00:00:00.000000Z__2002-01-04T00:00:00.000000Z.mseed"
+            assert not os.path.exists(expected_p_probs_file_day2)
+            expected_s_probs_file_day2 = f"{expected_outdir_day2}/probs.S__WY.YMR..HHE__2002-01-03T00:00:00.000000Z__2002-01-04T00:00:00.000000Z.mseed"
+            assert not os.path.exists(expected_s_probs_file_day2)
+            expected_json_file_day2 = f"{expected_outdir_day2}/WY.YMR..HHE__2002-01-03T00:00:00.000000Z__2002-01-04T00:00:00.000000Z.json"
+            assert not os.path.exists(expected_json_file_day2)
+
+            # Check summary file
+            expected_error_file = f"{apply_detectors_outdir}/DataIssues/file_error/YMR.HH.txt"
+            assert os.path.exists(expected_error_file)
+            with open(expected_error_file, "r") as f:
+                for line in f:
+                    assert line == "2002/01/03\n"
+
+            # Remove written files
+            os.remove(expected_error_file)
+            os.remove(expected_p_probs_file_day1)
+            os.remove(expected_s_probs_file_day1)
+            os.remove(expected_json_file_day1)
+
+    def test_apply_to_multiple_days_insufficient_data(self):
+        apply_detector_config_fail = deepcopy(apply_detector_config)
+        apply_detector_config_fail["dataloader"]["min_signal_percent"] = 99.5
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config_fail)
+        # First day has a gap but the second day doesn't
+        applier.apply_to_multiple_days("YMR", "HH?", 2002, 1, 1, 2, debug_N_examples=256)
+
+        assert applier.dataloader.metadata is not None
+        assert applier.dataloader.continuous_data is not None
+        assert applier.dataloader.previous_continuous_data is None
+        assert applier.dataloader.previous_endtime is None
+        assert len(applier.dataloader.gaps) == 0
+
+        expected_outdir_day1 = f"{apply_detectors_outdir}/2002/01/01"
+        expected_outdir_day2 = f"{apply_detectors_outdir}/2002/01/02"
+        # Day 1
+        expected_p_probs_file_day1 = f"{expected_outdir_day1}/probs.P__WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
+        assert not os.path.exists(expected_p_probs_file_day1)
+        expected_json_file_day1 = f"{expected_outdir_day1}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file_day1)
+        
+        # Day 2
+        expected_p_probs_file_day2 = f"{expected_outdir_day2}/probs.P__WY.YMR..HHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed"
+        assert os.path.exists(expected_p_probs_file_day2)
+        expected_json_file_day2 = f"{expected_outdir_day2}/WY.YMR..HHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.json"
+        assert os.path.exists(expected_json_file_day2)
+
+        # Check summary file
+        expected_error_file = f"{apply_detectors_outdir}/DataIssues/insufficient_data/YMR.HHZ.txt"
+        assert os.path.exists(expected_error_file)
+        with open(expected_error_file, "r") as f:
+            for line in f:
+                assert line == "2002/01/01\n"
+
+        os.remove(expected_json_file_day1)
+        os.remove(expected_json_file_day2)
+        os.remove(expected_p_probs_file_day2)
+        os.remove(expected_error_file)
+
     def test_apply_to_file_day_1c_save_npz(self):
         applier = apply_detectors.ApplyDetector(1, apply_detector_config_npz)
-        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+        succeeded = applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                   debug_N_examples=256)
-        
+        assert succeeded
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
         assert os.path.exists(expected_p_probs_file)
         data = np.load(expected_p_probs_file)['probs']
@@ -145,9 +360,9 @@ class TestApplyDetector():
         no_limit_config = deepcopy(apply_detector_config)
         no_limit_config["unet"]["min_torch_threads"] = -1
         applier = apply_detectors.ApplyDetector(1, no_limit_config)
-        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+        succeeded = applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                   debug_N_examples=256)
-        
+        assert succeeded
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
         probs_st = obspy.read(expected_p_probs_file)
@@ -170,9 +385,9 @@ class TestApplyDetector():
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
-        applier.apply_to_one_file(files,
+        succeeded = applier.apply_to_one_file(files,
                                   debug_N_examples=256)
-        
+        assert succeeded
         # P Probs - 3c name should have E or 1 channel
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
@@ -203,9 +418,9 @@ class TestApplyDetector():
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
-        applier.apply_to_one_file(files,
+        succeeded = applier.apply_to_one_file(files,
                                   debug_N_examples=256)
-        
+        assert succeeded
         # P Probs - 3c name should have E or 1 channel
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
         assert os.path.exists(expected_p_probs_file)
@@ -562,24 +777,31 @@ class TestDataLoader():
         dl = apply_detectors.DataLoader()
         # I know this has gaps in it
         file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        st, _ = dl.load_channel_data(file, min_signal_percent=0)
+        sufficient_data, st, _ = dl.load_channel_data(file, min_signal_percent=0)
         assert len(st.get_gaps()) == 0
+        assert sufficient_data
 
     def test_load_data_not_enough_signal(self):
         dl = apply_detectors.DataLoader()
         # I know this has gaps in it
         file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        st, gaps = dl.load_channel_data(file, min_signal_percent=5)
-        assert st == None
-        assert len(gaps) == 1
-        assert gaps[0][-1] == 8640000
-        assert gaps[0][-2] == 86400
+        sufficient_data, st, gaps = dl.load_channel_data(file, min_signal_percent=5)
+        dt = round(st[0].stats.delta, 2)
+        assert not sufficient_data
+        assert st is not None
+        # There are start and end gaps 
+        assert len(gaps) == len(st) + 1
+        assert (gaps[0][4] - UTC('2002-01-01')) < dt 
+        assert (UTC('2002-01-02') - gaps[2][5]) < dt
+        assert abs(gaps[1][5] - st[1].stats.starttime) < dt
+        assert abs(gaps[1][4] - st[0].stats.endtime) < dt
 
     def test_load_data_filling_ends(self):
         dl = apply_detectors.DataLoader()
         # I know this has gaps in it
         file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        st, _ = dl.load_channel_data(file, min_signal_percent=0)
+        sufficient_data, st, _ = dl.load_channel_data(file, min_signal_percent=0)
+        assert sufficient_data
         # Check the startime
         assert (st[0].stats.starttime - UTC("2002-01-01")) < 1
         # Check the endtime
@@ -590,7 +812,8 @@ class TestDataLoader():
     def test_load_data_end_gaps_added(self):
         dl = apply_detectors.DataLoader()
         file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        _, gaps = dl.load_channel_data(file, min_signal_percent=0)  
+        sufficient_data, _, gaps = dl.load_channel_data(file, min_signal_percent=0)  
+        assert sufficient_data
         # Know there is 1 gap between signal and signals do not go to the end of the hour
         assert len(gaps) == 3 
         assert gaps[0][4] == UTC('2002-1-1')
@@ -617,8 +840,8 @@ class TestDataLoader():
         st.write(file, format="MSEED")
 
         dl = apply_detectors.DataLoader()
-        st, gaps = dl.load_channel_data(file, min_signal_percent=0)
-
+        sufficient_data, st, gaps = dl.load_channel_data(file, min_signal_percent=0)
+        assert sufficient_data
         # There should be no gaps returned and the trace should be continuous
         assert len(gaps) == 0
         assert st[0].stats.npts == 8640000
@@ -630,7 +853,8 @@ class TestDataLoader():
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         
         dl = apply_detectors.DataLoader()
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
         assert dl.continuous_data.shape == (8640000, 3)
         assert len(dl.metadata.keys()) == 15
         assert len(dl.gaps) == 3
@@ -650,7 +874,8 @@ class TestDataLoader():
         fileZ = f'{examples_dir}/US.LKWY.00.BHZ__100hz__2022-10-06T00:00:00.000000Z__2022-10-07T00:00:00.000000Z.mseed'
         
         dl = apply_detectors.DataLoader()
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
         assert dl.continuous_data.shape == (8640000, 3)
         assert len(dl.metadata.keys()) == 15
         assert len(dl.gaps) == 3
@@ -661,7 +886,8 @@ class TestDataLoader():
         fileZ = f'{examples_dir}/US.LKWY.00.BHZ__100hz__2022-10-07T00:00:00.000000Z__2022-10-08T00:00:00.000000Z.mseed'
         
         dl = apply_detectors.DataLoader()
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
         assert dl.continuous_data.shape == (8640000, 3)
         assert len(dl.metadata.keys()) == 15
         assert len(dl.gaps) == 0
@@ -740,17 +966,23 @@ class TestDataLoader():
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         
         dl = apply_detectors.DataLoader()
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
-        assert dl.continuous_data == None
-        assert dl.metadata == None
-        assert len(dl.gaps) == 1
-        assert dl.gaps[0][3] == "HH?"
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
+        assert not loaded
+        assert dl.continuous_data is None
+        # Updated code keeps this info so it can be written to disk (including all gaps)
+        assert dl.metadata is not None
+        # One gap in the middle, no start or end gaps. Includes gaps on all channels
+        assert len(dl.gaps) == 3
+        assert dl.gaps[0][3] == "HHE"
+        assert dl.gaps[1][3] == "HHN"
+        assert dl.gaps[2][3] == "HHZ"
         
     def test_load_1c_data(self):
         file = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         
         dl = apply_detectors.DataLoader()
-        dl.load_1c_data(file, min_signal_percent=0)
+        loaded = dl.load_1c_data(file, min_signal_percent=0)
+        assert loaded
         assert dl.continuous_data.shape == (8640000, 1)
         assert len(dl.metadata.keys()) == 15
         assert len(dl.gaps) == 1
@@ -760,71 +992,88 @@ class TestDataLoader():
         file = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         
         dl = apply_detectors.DataLoader()
-        dl.load_1c_data(file, min_signal_percent=1)
-        assert dl.continuous_data == None
-        assert dl.metadata == None
-        assert len(dl.gaps) == 1
+        loaded = dl.load_1c_data(file, min_signal_percent=1)
+        assert not loaded
+        assert dl.continuous_data is None
+        ## Updated code keeps gap and metadata information so it can be written to disk
+        #assert dl.metadata == None
+        ## start and end gaps + one other
+        assert len(dl.gaps) == 3
         assert dl.gaps[0][3] == "EHZ"
 
     def test_reset_loader(self):
         file = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         dl = apply_detectors.DataLoader()
-        dl.load_1c_data(file, min_signal_percent=0)
+        loaded = dl.load_1c_data(file, min_signal_percent=0)
+        assert loaded
         dl.reset_loader()
-        assert dl.continuous_data == None
-        assert dl.metadata == None
-        assert dl.gaps == None
+        assert dl.continuous_data is None
+        assert dl.metadata is None
+        assert dl.gaps is None
 
     def test_load_3c_data_reset_loader(self):
         fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
-        dl = apply_detectors.DataLoader()
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
         # Try to load data but skip the day because not enough signal
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
-        # Continous_data and metadata should now be None, but gaps contains the entire day as a gap
-        assert dl.continuous_data == None
-        assert dl.metadata == None
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
+        # Continuous_data should be none, but gaps and metadata stored to write to disk
+        assert not loaded
+        assert dl.continuous_data is None
+        assert dl.metadata is not None
+        assert len(dl.gaps) == 3
+        # These are not removed until the next day is loaded or explicitly removed
+        assert dl.previous_continuous_data is not None
+        assert dl.previous_endtime is not None
     
     def test_load_1c_data_reset_loader(self):
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
         dl = apply_detectors.DataLoader()
-        dl.load_1c_data(fileZ, min_signal_percent=0)
+        loaded = dl.load_1c_data(fileZ, min_signal_percent=0)
+        assert loaded
         # Try to load data but skip the day because not enough signal
-        dl.load_1c_data(fileZ, min_signal_percent=99.5)
-        # Continous_data and metadata should now be None, but gaps contains the entire day as a gap
-        assert dl.continuous_data == None
-        assert dl.metadata == None
+        loaded = dl.load_1c_data(fileZ, min_signal_percent=99.5)
+        assert not loaded
+        # Continous_data should be None
+        assert dl.continuous_data is None
+        # Gaps and metadata are kept so they can be written to disk
+        assert dl.metadata is not None
+        assert dl.gaps is not None
 
     def test_load_data_1c_prepend_previous(self):
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
-        dl.load_1c_data(file1, min_signal_percent=0)
+        loaded = dl.load_1c_data(file1, min_signal_percent=0)
         previous_endtime = dl.metadata['original_endtime']
         
         # Previous_data should be none until the next day is read in 
-        assert dl.previous_continuous_data == None
-        assert dl.previous_endtime == None
+        assert loaded
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
 
         file2 = f'{examples_dir}/WY.YMR..HHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
-        dl.load_1c_data(file2, min_signal_percent=0)
+        loaded = dl.load_1c_data(file2, min_signal_percent=0)
         file2_endtime = dl.metadata['original_endtime']
         file2_enddata = dl.continuous_data[-1000:, :]
 
         # Check previous data is loaded
         saved_previous = dl.previous_continuous_data
+        assert loaded
         assert dl.previous_continuous_data.shape == (1000, 1)
         assert dl.previous_endtime == previous_endtime
 
         # load file2 without prepending previous so I can make sure the signals are the same
         dl2 = apply_detectors.DataLoader(store_N_seconds=0)
-        dl2.load_1c_data(file2, min_signal_percent=0)
+        loaded = dl2.load_1c_data(file2, min_signal_percent=0)
 
         # Check that the continuous data and metadata has been correctly updated
+        assert loaded
         assert dl.continuous_data.shape == (8641000, 1)
         assert dl.metadata['starttime'] == dl.metadata['original_starttime'] - 10
         assert UTC(dl.metadata['starttime_epoch']) == dl.metadata['original_starttime'] - 10
@@ -841,7 +1090,8 @@ class TestDataLoader():
 
         # Check that the previous data has been correctly updated
         file3 = f'{examples_dir}/WY.YMR..HHZ__2002-01-03T00:00:00.000000Z__2002-01-04T00:00:00.000000Z.mseed'
-        dl.load_1c_data(file3, min_signal_percent=0)
+        loaded = dl.load_1c_data(file3, min_signal_percent=0)
+        assert loaded
         assert dl.previous_endtime == file2_endtime
         assert np.array_equal(dl.previous_continuous_data, file2_enddata)
 
@@ -851,18 +1101,20 @@ class TestDataLoader():
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'        
         # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
         previous_endtime = dl.metadata['original_endtime']
         previous_enddata = dl.continuous_data[-1000:, :]
 
         # Previous_data should be none until the next day is read in 
-        assert dl.previous_continuous_data == None
-        assert dl.previous_endtime == None
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
 
         fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
         fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
         
         # Check previous data is loaded
         assert dl.previous_continuous_data.shape == (1000, 3)
@@ -876,7 +1128,8 @@ class TestDataLoader():
 
         # load the 2nd set of files without prepending previous so I can make sure the signals are the same
         dl2 = apply_detectors.DataLoader(store_N_seconds=0)
-        dl2.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        loaded = dl2.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
         assert np.array_equal(dl2.continuous_data, dl.continuous_data[1000:, :])
 
     def test_load_data_1c_prepend_previous_trimmed(self):
@@ -886,19 +1139,21 @@ class TestDataLoader():
         file1 = f'{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
-        dl.load_1c_data(file1, min_signal_percent=0)
+        loaded = dl.load_1c_data(file1, min_signal_percent=0)
         previous_endtime = dl.metadata['original_endtime']
 
         # Previous_data should be none until the next day is read in 
-        assert dl.previous_continuous_data == None
-        assert dl.previous_endtime == None
+        assert loaded
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
 
         file2 = f'{examples_dir}/WY.YWB..EHZ__2002-01-02T00:00:00.000000Z__2002-01-03T00:00:00.000000Z.mseed'
-        dl.load_1c_data(file2, min_signal_percent=0)
+        loaded = dl.load_1c_data(file2, min_signal_percent=0)
         file2_enddtime = dl.metadata['original_endtime']
         file2_enddata = dl.continuous_data[-1000:, :]
 
         # Check previous data is loaded
+        assert loaded
         assert dl.previous_continuous_data.shape == (1000, 1)
         assert dl.previous_endtime == previous_endtime
 
@@ -907,8 +1162,9 @@ class TestDataLoader():
         assert dl.metadata['starttime'] == dl.metadata['original_starttime'] - 10 
 
         file3 = f'{examples_dir}/WY.YWB..EHZ__2002-01-03T00:00:00.000000Z__2002-01-04T00:00:00.000000Z.mseed'
-        dl.load_1c_data(file3, min_signal_percent=0)
+        loaded = dl.load_1c_data(file3, min_signal_percent=0)
         # Check that the previous data has been correctly updated
+        assert loaded
         assert dl.previous_endtime == file2_enddtime
         assert np.array_equal(dl.previous_continuous_data, file2_enddata)
   
@@ -918,30 +1174,84 @@ class TestDataLoader():
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
-        assert dl.previous_continuous_data == None
-        assert dl.previous_endtime == None
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
+        assert dl.continuous_data is not None
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
        
         # Try to load data but skip the day because not enough signal
-        dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
-        # Continous_data and metadata should now be None, but gaps contains the entire day as a gap
-        assert dl.previous_continuous_data == None
-        assert dl.previous_endtime == None
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=99.5)
+        assert not loaded
+        # The previous data should still exist until a new day is loaded or 
+        # reset explicitly 
+        assert dl.continuous_data is None
+        assert dl.previous_continuous_data is not None
+        assert dl.previous_endtime is not None
+
+        # Load data succesfully again - previous day info should be gone
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ, min_signal_percent=0)
+        assert loaded
+        assert dl.continuous_data is not None
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
 
     def test_load_1c_data_reset_previous_day(self):
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         # Load data succesfully
         dl = apply_detectors.DataLoader(store_N_seconds=10)
-        dl.load_1c_data(fileZ, min_signal_percent=0)
-        assert dl.previous_continuous_data == None
-        assert dl.previous_endtime == None
+        loaded = dl.load_1c_data(fileZ, min_signal_percent=0)
+        assert loaded
+        assert dl.continuous_data is not None
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
 
         # Try to load data but skip the day because not enough signal
-        dl.load_1c_data(fileZ, min_signal_percent=99.5)
-        # Continous_data and metadata should now be None, but gaps contains the entire day as a gap
-        assert dl.previous_continuous_data == None
-        assert dl.previous_endtime == None
+        loaded = dl.load_1c_data(fileZ, min_signal_percent=99.5)
+        # The previous data should still exist until a new day is loaded or 
+        # reset explicitly 
+        assert not loaded
+        assert dl.continuous_data is None
+        assert dl.previous_continuous_data is not None
+        assert dl.previous_endtime is not None
 
+        # Load data succesfully - previous day info should be gone
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
+        loaded = dl.load_1c_data(fileZ, min_signal_percent=0)
+        assert loaded
+        assert dl.continuous_data is not None
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
+
+    def test_error_in_loading(self):
+        fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
+        dl = apply_detectors.DataLoader(store_N_seconds=10)
+        outfile = dl.make_outfile_name(fileZ, f'{examples_dir}')
+
+        # Load data succesfully (so can store previous data)
+        loaded = dl.load_1c_data(fileZ, min_signal_percent=0)
+        assert loaded
+        # Fail to load 
+        loaded = dl.load_1c_data(fileZ, min_signal_percent=99.5)
+        assert not loaded
+        # Write error info and reset loader
+        dl.error_in_loading(outfile=outfile)
+        assert dl.continuous_data is None
+        assert dl.metadata is None
+        assert dl.gaps is None
+        assert dl.previous_continuous_data is None
+        assert dl.previous_endtime is None
+
+        # load the error outfile
+        with open(outfile, "r") as fp:
+            json_dict = json.load(fp)
+
+        assert len(json_dict["gaps"]) == 1
+        assert json_dict["station"] == "YMR"
+
+        os.remove(outfile)
+ 
     def test_n_windows(self):
         npts = 1000
         window_length = 200
@@ -1306,7 +1616,8 @@ class TestDataLoader():
     def test_format_continuous_for_unet_1c_P_real_data(self):
         dl = apply_detectors.DataLoader()
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        dl.load_1c_data(file1)
+        loaded = dl.load_1c_data(file1)
+        assert loaded
         window_length = 1008
         sliding_interval = 500
         data_unproc, start_pad_npts, end_pad_npts = dl.format_continuous_for_unet(window_length,
@@ -1320,7 +1631,8 @@ class TestDataLoader():
     def test_write_data_info_1c(self):
         dl = apply_detectors.DataLoader()
         file1 = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        dl.load_1c_data(file1)
+        loaded = dl.load_1c_data(file1)
+        assert loaded
         outfile = os.path.join(examples_dir, "gaps.json")
         dl.write_data_info(outfile)
     
@@ -1350,7 +1662,8 @@ class TestDataLoader():
         fileE = f'{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileN = f'{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
         fileZ = f'{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed'
-        dl.load_3c_data(fileE, fileN, fileZ)
+        loaded = dl.load_3c_data(fileE, fileN, fileZ)
+        assert loaded
         outfile = os.path.join(examples_dir, "gaps.json")
         dl.write_data_info(outfile)
     
@@ -1374,6 +1687,83 @@ class TestDataLoader():
         assert json_dict['channel'] == 'HH?'
 
         os.remove(outfile)
+
+    def test_format_edge_gaps_interpolated_false(self):
+        dl = apply_detectors.DataLoader()
+        desired_start = UTC('2025-01-01')
+        n_desired_seconds = 60*60*24
+        sampling_rate = 100
+        dt = 1/sampling_rate
+        desired_end = desired_start + n_desired_seconds
+
+        # Make two traces to simulate the gaps not being interpolated
+        min_signal_frac = 0.05
+        n_act_seconds = n_desired_seconds*min_signal_frac - 1
+        data1_start = UTC('2025-01-01 12:00:00')
+        data2_start = UTC('2025-01-01 13:00:00')
+        gap_length = n_act_seconds//2
+        data = np.zeros(int(gap_length*sampling_rate))
+        data2_end = data2_start + gap_length
+
+        st = obspy.core.Stream()
+        for start in [data1_start, data2_start]:
+            tr = obspy.core.Trace()
+            tr.data = data
+            tr.stats.starttime = start
+            tr.stats.sampling_rate = sampling_rate
+            tr.stats.network = "WY"
+            tr.stats.stat = "YNR"
+            tr.stats.location = "01"
+            tr.stats.channel = "HHZ"
+            st += tr
+
+        start_gap, end_gap = dl.format_edge_gaps(st, 
+                                                desired_start, 
+                                                desired_end,
+                                                interpolated=False)
+
+        assert abs(start_gap[4] - desired_start) <= dt
+        assert abs(start_gap[5] - data1_start) <= dt
+        assert abs(end_gap[4] - data2_end) <= dt
+        assert abs(end_gap[5] - desired_end) <= dt
+
+    def test_format_edge_gaps_interpolated_true(self):
+        dl = apply_detectors.DataLoader()
+        desired_start = UTC('2025-01-01')
+        n_desired_seconds = 60*60*24
+        sampling_rate = 100
+        dt = 1/sampling_rate
+        desired_end = desired_start + n_desired_seconds
+
+        # Make one traces to simulate the gaps being interpolated
+        min_signal_frac = 0.05
+        n_act_seconds = n_desired_seconds*min_signal_frac - 1
+        data1_start = UTC('2025-01-01 12:00:00')
+        gap_length = n_act_seconds
+        data = np.zeros(int(gap_length*sampling_rate))
+        data1_end = data1_start + gap_length
+
+        st = obspy.core.Stream()
+        for start in [data1_start]:
+            tr = obspy.core.Trace()
+            tr.data = data
+            tr.stats.starttime = start
+            tr.stats.sampling_rate = sampling_rate
+            tr.stats.network = "WY"
+            tr.stats.stat = "YNR"
+            tr.stats.location = "01"
+            tr.stats.channel = "HHZ"
+            st += tr
+
+        start_gap, end_gap = dl.format_edge_gaps(st, 
+                                                desired_start, 
+                                                desired_end,
+                                                interpolated=False)
+
+        assert abs(start_gap[4] - desired_start) <= dt
+        assert abs(start_gap[5] - data1_start) <= dt
+        assert abs(end_gap[4] - data1_end) <= dt
+        assert abs(end_gap[5] - desired_end) <= dt
 
     def test_make_outfile_name_1c(self):
         dl = apply_detectors.DataLoader()    
@@ -1679,9 +2069,9 @@ class TestApplyDetectorSyncronousOpenVino():
     def test_apply_to_file_day_1c(self):
         applier = apply_detectors.ApplyDetector(1, apply_sync_openvino_detector_config)
         assert applier.p_detector.openvino_compiled is True
-        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+        succeeded = applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                   debug_N_examples=256)
-        
+        assert succeeded
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
         probs_st = obspy.read(expected_p_probs_file)
@@ -1706,9 +2096,9 @@ class TestApplyDetectorSyncronousOpenVino():
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
-        applier.apply_to_one_file(files,
+        succeeded = applier.apply_to_one_file(files,
                                   debug_N_examples=256)
-        
+        assert succeeded
         # P Probs - 3c name should have E or 1 channel
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
@@ -1861,9 +2251,9 @@ class TestApplyDetectorSyncronousOpenVino():
 
     def test_apply_to_file_day_1c_save_npz(self):
             applier = apply_detectors.ApplyDetector(1, apply_sync_openvino_detector_config_npz)
-            applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+            succeeded = applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                     debug_N_examples=256)
-            
+            assert succeeded
             expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
             assert os.path.exists(expected_p_probs_file)
             data = np.load(expected_p_probs_file)['probs']
@@ -1885,9 +2275,9 @@ class TestApplyDetectorSyncronousOpenVino():
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
-        applier.apply_to_one_file(files,
+        succeeded = applier.apply_to_one_file(files,
                                   debug_N_examples=256)
-        
+        assert succeeded
         # P Probs - 3c name should have E or 1 channel
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
         assert os.path.exists(expected_p_probs_file)
@@ -2092,9 +2482,9 @@ class TestApplyDetectorAsyncronousOpenVino():
     def test_apply_to_file_day_1c(self):
         applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config)
         assert applier.p_detector.openvino_compiled is True
-        applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+        succeeded = applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                   debug_N_examples=256)
-        
+        assert succeeded
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
         probs_st = obspy.read(expected_p_probs_file)
@@ -2119,9 +2509,9 @@ class TestApplyDetectorAsyncronousOpenVino():
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
-        applier.apply_to_one_file(files,
+        succeeded = applier.apply_to_one_file(files,
                                   debug_N_examples=256)
-        
+        assert succeeded
         # P Probs - 3c name should have E or 1 channel
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"
         assert os.path.exists(expected_p_probs_file)
@@ -2274,9 +2664,9 @@ class TestApplyDetectorAsyncronousOpenVino():
 
     def test_apply_to_file_day_1c_save_npz(self):
             applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config_npz)
-            applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
+            succeeded = applier.apply_to_one_file([f"{examples_dir}/WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"],
                                     debug_N_examples=256)
-            
+            assert succeeded
             expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YWB..EHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
             assert os.path.exists(expected_p_probs_file)
             data = np.load(expected_p_probs_file)['probs']
@@ -2298,9 +2688,9 @@ class TestApplyDetectorAsyncronousOpenVino():
         files = [f"{examples_dir}/WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHN__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed",
                  f"{examples_dir}/WY.YMR..HHZ__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.mseed"]
-        applier.apply_to_one_file(files,
+        succeeded = applier.apply_to_one_file(files,
                                   debug_N_examples=256)
-        
+        assert succeeded
         # P Probs - 3c name should have E or 1 channel
         expected_p_probs_file = f"{apply_detectors_outdir}/probs.P__WY.YMR..HHE__2002-01-01T00:00:00.000000Z__2002-01-02T00:00:00.000000Z.npz"
         assert os.path.exists(expected_p_probs_file)
@@ -2323,6 +2713,8 @@ class TestApplyDetectorAsyncronousOpenVino():
         os.remove(expected_p_probs_file)
         os.remove(expected_s_probs_file)
         os.remove(expected_json_file)
+
+
 
     def test_apply_to_multiple_days_1c_npz(self):
         applier = apply_detectors.ApplyDetector(1, apply_async_openvino_detector_config_npz)
@@ -2429,13 +2821,13 @@ class TestApplyDetectorAsyncronousOpenVino():
         os.remove(expected_json_file)
 
 if __name__ == '__main__':
-    from seis_proc_dl.pytests.test_apply_detectors_unit import TestApplyDetectorOpenVino
-    dltester = TestApplyDetector()
-    dltester.test_apply_to_multiple_days_3c_npz()
+    # from seis_proc_dl.pytests.test_apply_detectors_unit import TestApplyDetector
+    # dltester = TestApplyDetector()
+    # dltester.test_apply_to_multiple_days_insufficient_data()
 
-    # from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
-    # dltester = TestDataLoader()
-    # dltester.test_load_3c_too_long()
+    from seis_proc_dl.pytests.test_apply_detectors_unit import TestDataLoader
+    dltester = TestDataLoader()
+    dltester.test_load_3c_data_skip_day()
   
     # from seis_proc_dl.pytests.test_apply_detectors_unit import TestPhaseDetector
     # pdtester = TestPhaseDetector()
