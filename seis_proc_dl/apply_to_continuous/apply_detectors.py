@@ -1354,7 +1354,7 @@ class DataLoader():
         return (npts-window_length)//sliding_interval + 1
     
     @staticmethod
-    def format_edge_gaps(st, desired_start, desired_end, entire_file=False):
+    def format_edge_gaps(st, desired_start, desired_end, entire_file=False, interpolated=True):
         """Checks for gaps greater than 1 sample at the start and end of an Obspy Stream.
         Only looks at the first trace in the stream. *The desired endtime may be off by ~1 second*
         If a gap exists returns a list in the format of Obspy's get_gaps(), otherwise returns None.
@@ -1367,8 +1367,12 @@ class DataLoader():
         Returns:
             tupple or list: tupple of gap info lists for the beginning and end of the trace or a list for the entire file gap. 
         """
+        end_gap_st_ind = 0
+        if not interpolated:
+            end_gap_st_ind = -1
+
         starttime = st[0].stats.starttime
-        endtime = st[0].stats.endtime 
+        endtime = st[end_gap_st_ind].stats.endtime 
         sampling_rate = round(st[0].stats.sampling_rate)
 
         if entire_file:
@@ -1388,7 +1392,8 @@ class DataLoader():
 
         end_gap = None
         if end_delta > dt:
-            end_gap = [st[0].stats.network, st[0].stats.station, st[0].stats.location, st[0].stats.channel,
+            end_gap = [st[end_gap_st_ind].stats.network, st[end_gap_st_ind].stats.station, 
+                       st[end_gap_st_ind].stats.location, st[end_gap_st_ind].stats.channel,
                         endtime, desired_end, end_delta, int(end_delta*sampling_rate)]
 
         return start_gap, end_gap
