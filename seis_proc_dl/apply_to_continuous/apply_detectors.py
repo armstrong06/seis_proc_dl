@@ -166,7 +166,8 @@ class ApplyDetector():
         stat_startdate, stat_enddate = self.get_station_dates(year, stat, chan)
 
         missing_dates = []
-        error_loading_dates = []
+        file_error_dates = []
+        insufficient_data_dates = []
         ### Iterate over the specified number of days ###
         for _ in range(n_days):
             ### If starting in a new year, reload metadata
@@ -196,17 +197,23 @@ class ApplyDetector():
                 continue
             elif (self.ncomps == 1 and len(files) != 1) or (self.ncomps ==3 and len(files) != 3):
                 logger.warning(f"Incorrect number of files found for {date_str} {stat} {chan}")
-                error_loading_dates.append(date_str)
+                file_error_dates.append(date_str)
                 # Reset dataloader
                 self.dataloader.error_in_loading()
                 continue 
 
-            self.apply_to_one_file(files, date_outdir, debug_N_examples=debug_N_examples)
+            applied_successfully = self.apply_to_one_file(files, date_outdir, debug_N_examples=debug_N_examples)
+            if not applied_successfully:
+                insufficient_data_dates.append(date_str)
 
             date += delta
 
-        self.write_dates_to_file(self.outdir, "missing", stat, chan, missing_dates)
-        self.write_dates_to_file(self.outdir, "error_loading", stat, chan, error_loading_dates)
+        if len(missing_dates) > 0:
+            self.write_dates_to_file(self.outdir, "missing", stat, chan, missing_dates)
+        if len(file_error_dates) > 0:
+            self.write_dates_to_file(self.outdir, "file_error", stat, chan, file_error_dates)
+        if len(insufficient_data_dates) > 0:
+            self.write_dates_to_file(self.outdir, "insufficient_data", stat, chan, insufficient_data_dates)
 
     def apply_to_one_file(self, files, outdir=None, debug_N_examples=-1):
         """Process one miniseed file and write posterior probability and data information to disk. Runs both 
@@ -223,15 +230,22 @@ class ApplyDetector():
         if outdir is None:
             outdir = self.outdir
 
+        meta_outfile_name =  self.dataloader.make_outfile_name(files[0], outdir)
+
         start_total = time.time()
         if self.ncomps == 1:
-            self.dataloader.load_1c_data(files[0], 
+            load_succeeded = self.dataloader.load_1c_data(files[0], 
                                          min_signal_percent=self.min_signal_percent,)
                                          #expected_file_duration_s=self.expected_file_duration_s)
         else:
-            self.dataloader.load_3c_data(files[0], files[1], files[2], 
+            load_succeeded = self.dataloader.load_3c_data(files[0], files[1], files[2], 
                                          min_signal_percent=self.min_signal_percent,)
                                          #expected_file_duration_s=self.expected_file_duration_s)
+
+        if not load_succeeded:
+            self.dataloader.error_in_loading(outfile=meta_outfile_name)
+            return False
+        
         logger.debug(f"Time to load data: {time.time() - start_total:0.2f} s")
         start_P = time.time()
         self.__apply_to_one_phase(self.p_detector, self.p_proc_func, 
@@ -245,9 +259,9 @@ class ApplyDetector():
 
         ### Save the station meta info (including gaps) to a file in the same dir as the post probs. ###
         ### Only need one file per station/day pair ###
-        meta_outfile_name =  self.dataloader.make_outfile_name(files[0], outdir)
         self.dataloader.write_data_info(meta_outfile_name)
         logger.debug(f"Total run time for day: {time.time() - start_total:0.2f} s")
+        return True
 
     def __apply_to_one_phase(self, detector, proc_func, file_for_name, outdir, debug_N_examples=-1):
         """Format continuous data and apply phase detector. Write posterior probabilities to disk.
@@ -336,16 +350,32 @@ class ApplyDetector():
         
         return False
 
-    @staticmethod
-    def write_dates_to_file(basedir, date_type, stat, chan, dates):
-        if date_type not in ["missing", "loading_error"]:
-            raise ValueError("Unexpected date_type to write to file")
+    def write_dates_to_file(self, basedir, error_type, stat, chan, dates):
+        """Append the list of dates to a text file for that station/channel. Will make a DataIssues dir 
+        and a subdirectory based on the error_type, if needed. 
 
-        outdir = os.path.join(basedir, date_type)
-        if not os.path.exists(dir):
+        Args:
+            basedir (str): Path that will contain the DataIssues dir
+            error_type (str): Type of error the dates relate to. "missing", "file_error", or "insufficient_data"
+            stat (str): Station name for the file name
+            chan (str): Channel code for the file name
+            dates (list): List of date strings (Y/m/d) to write to the file
+
+        Raises:
+            ValueError: If the error_type is not supported
+        """
+        if error_type not in ["missing", "file_error", "insufficient_data"]:
+            raise ValueError("Unexpected date_type to write to file")
+        
+        if self.ncomps == 3 and len(chan) == 3:
+            chan = chan[0:2]
+        #     chan += "?"
+
+        outdir = os.path.join(basedir, "DataIssues", error_type)
+        if not os.path.exists(outdir):
             logger.debug(f"Making directory {outdir}")
             try:
-                os.makedirs(dir)
+                os.makedirs(outdir)
             except:
                 logger.info(f"{outdir} likely created by another job...")
 
