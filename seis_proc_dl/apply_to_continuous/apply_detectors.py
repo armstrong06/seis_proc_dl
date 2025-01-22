@@ -226,6 +226,9 @@ class ApplyDetector():
             in the config file. Defaults to None.
             debug_N_examples (int, optional): Number of waveform segments to pass to the phase detector, use 
             all inputs if -1. Defaults to -1.
+
+        Returns:
+            bool: True if data is loaded successfully, otherwise False
         """
         if outdir is None:
             outdir = self.outdir
@@ -301,10 +304,21 @@ class ApplyDetector():
         detector.save_post_probs(probs_outfile_name, cont_post_probs, self.dataloader.metadata)
 
     def get_station_dates(self, year, stat, chan):
+        """Read in station xml files and get the start and end dates for the appropriate channels.
+
+        Args:
+            year (str): year of the data being processed
+            stat (str): station name
+            chan (str): chan code
+
+        Returns:
+            tuple: (start Datetime, end DateTime)
+        """
         file_name = os.path.join(self.data_dir, str(year), f"stations/*{stat}.xml")
         files = glob.glob(file_name)
         
         if len(files) != 1:
+            # raise ValueError(f"Station xml file {file_name} does not exist. Check station and channel values.")
             logger.warning(f"Station xml file {file_name} does not exist...")
             return None, None
         
@@ -337,6 +351,16 @@ class ApplyDetector():
 
     @staticmethod
     def validate_run_date(current_date, start_date, end_date):
+        """Check if the date of interest is within the station/channel operating period. 
+
+        Args:
+            current_date (datetime): date of interest
+            start_date (datetime): start date of the station
+            end_date (datetime): end date of the station
+
+        Returns:
+            bool: True if valid date, False if not. 
+        """
         # Likley no metadata read in
         if start_date is None:
             return False
@@ -801,6 +825,9 @@ class DataLoader():
               Defaults to 1.
             expected_file_duration_s (int, optional): The number of expected seconds in file. 
             Only implemented for 86400. Defaults to 86400.
+        
+        Returns:
+            bool: True if there is sufficient data on all channels, False otherwise
         """
 
         self.reset_loader()
@@ -882,6 +909,9 @@ class DataLoader():
               Defaults to 1.
             expected_file_duration_s (int, optional): The number of expected seconds in file. 
             Only implemented for 86400. Defaults to 86400.
+
+        Returns:
+            bool: True if there is sufficient data, False otherwise
         """
 
         self.reset_loader()
@@ -1082,7 +1112,7 @@ class DataLoader():
         self.metadata = meta_data
 
     def load_channel_data(self, file, min_signal_percent=1, expected_file_duration_s=86400):
-        """Reads in a miniseed file and check for gaps. Gaps are interpolated. 
+        """Reads in a miniseed file and check for gaps. Gaps are interpolated, if there is sufficient data. 
 
         Args:
             file (str): Path to the miniseed file to read in.
@@ -1090,7 +1120,7 @@ class DataLoader():
             max_duration_s (int, optional): Expected duration of the miniseed file in seconds. Defaults to 86400.
 
         Returns:
-        tupple: (bool, Obspy Stream, list of gaps)
+        tupple: (bool: Sufficient data or not, Obspy Stream, list of gaps)
         """ 
 
         logger.debug("loading %s", file)
