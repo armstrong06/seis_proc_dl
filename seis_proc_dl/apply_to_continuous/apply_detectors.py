@@ -150,7 +150,7 @@ class ApplyDetector():
             all inputs if -1. Defaults to -1.
         """
         
-        assert year >= 2002 and year <= 2022, "Year is invalid"
+        assert year >= 2002 and year <= 2023, "Year is invalid"
         assert month > 0 and month < 13, "Month is invalid"
         assert day > 0 and day <= 31, "Day is invalid"
         assert n_days > 0, "Number of days is invalid"
