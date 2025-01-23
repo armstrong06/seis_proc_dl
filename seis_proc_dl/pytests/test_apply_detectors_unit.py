@@ -491,13 +491,102 @@ class TestApplyDetector():
         assert end.strftime("%Y/%m/%d") == "2002/08/29"
 
     def test_get_station_dates_ncomps_change_1C(self):
-            applier = apply_detectors.ApplyDetector(1, apply_detector_config)
-            start, end = applier.get_station_dates(2002, "YJC", "EHZ")
-            # Available Channels:
-            # ..EHZ       100.0 Hz  2002-08-29 to 2010-04-30
-            # ..EHZ       100.0 Hz  1994-07-16 to 2002-08-28
-            assert start.strftime("%Y/%m/%d") == "1994/07/16"
-            assert end.strftime("%Y/%m/%d") == "2010/04/30"
+        applier = apply_detectors.ApplyDetector(1, apply_detector_config)
+        start, end = applier.get_station_dates(2002, "YJC", "EHZ")
+        # Available Channels:
+        # ..EHZ       100.0 Hz  2002-08-29 to 2010-04-30
+        # ..EHZ       100.0 Hz  1994-07-16 to 2002-08-28
+        assert start.strftime("%Y/%m/%d") == "1994/07/16"
+        assert end.strftime("%Y/%m/%d") == "2010/04/30"
+
+    def test_validate_date_range_no_start(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        stat_start, stat_end = None, None
+        run_start = datetime.datetime(2023, 1, 1)
+        n_days = 2
+        run_start, n_days = applier.validate_date_range(stat_start, 
+                                                        stat_end, 
+                                                        run_start, 
+                                                        n_days)
+        assert run_start is None
+        assert n_days == 0
+
+    def test_validate_date_range_entirely_before(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        stat_start, stat_end = datetime.datetime(2023, 2, 1, 5, 5, 5), None
+        run_start = datetime.datetime(2023, 1, 1)
+        n_days = 7
+        run_start, n_days = applier.validate_date_range(stat_start, 
+                                                        stat_end, 
+                                                        run_start, 
+                                                        n_days)
+        assert run_start is None
+        assert n_days == 0
+
+    def test_validate_date_range_entirely_after(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        stat_start, stat_end = datetime.datetime(2023, 1, 1, 1, 1, 1), datetime.datetime(2023, 2, 1, 23, 59, 59)
+        run_start = datetime.datetime(2023, 2, 2)
+        n_days = 7
+        run_start, n_days = applier.validate_date_range(stat_start, 
+                                                        stat_end, 
+                                                        run_start, 
+                                                        n_days)
+        assert run_start is None
+        assert n_days == 0
+
+    def test_validate_date_range_entirely_during(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        stat_start, stat_end = datetime.datetime(2023, 1, 1, 1, 1, 1), datetime.datetime(2023, 3, 1, 23, 59, 59)
+        run_start = datetime.datetime(2023, 2, 1)
+        n_days = 7
+        run_start1, n_days1 = applier.validate_date_range(stat_start, 
+                                                        stat_end, 
+                                                        run_start, 
+                                                        n_days)
+        assert run_start == run_start1
+        assert n_days == n_days1
+
+    def test_validate_date_range_partially_before(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        stat_start, stat_end = datetime.datetime(2023, 2, 1, 5, 10, 1), None
+        run_start = datetime.datetime(2023, 1, 22)
+        n_days = 30
+        run_start, n_days = applier.validate_date_range(stat_start, 
+                                                        stat_end, 
+                                                        run_start, 
+                                                        n_days)
+        assert run_start == datetime.datetime(stat_start.year, stat_start.month, stat_start.day)
+        assert n_days == 20
+
+    def test_validate_date_range_partially_after(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        stat_start, stat_end = datetime.datetime(2023, 1, 1, 5, 10, 1), datetime.datetime(2023, 2, 1, 22, 59, 59)
+        run_start = datetime.datetime(2023, 1, 22)
+        n_days = 30
+        run_start1, n_days = applier.validate_date_range(stat_start, 
+                                                        stat_end, 
+                                                        run_start, 
+                                                        n_days)
+        assert run_start1 == run_start
+        assert n_days == 10
+        new_end = run_start1 + datetime.timedelta(days=n_days)
+        assert new_end == datetime.datetime(stat_end.year, stat_end.month, stat_end.day) 
+
+
+    def test_validate_date_range_partially_before_and_after(self):
+        applier = apply_detectors.ApplyDetector(3, apply_detector_config)
+        stat_start, stat_end = datetime.datetime(2023, 2, 1, 5, 10, 1), datetime.datetime(2023, 3, 1, 19, 59, 59)
+        run_start = datetime.datetime(2023, 1, 1)
+        n_days = 90
+        run_start1, n_days = applier.validate_date_range(stat_start, 
+                                                        stat_end, 
+                                                        run_start, 
+                                                        n_days)
+        assert run_start1 == datetime.datetime(stat_start.year, stat_start.month, stat_start.day) 
+        assert n_days == 28
+        new_end = run_start1 + datetime.timedelta(days=n_days)
+        assert new_end == datetime.datetime(stat_end.year, stat_end.month, stat_end.day) 
 
     def test_validate_run_date_no_start(self):
         applier = apply_detectors.ApplyDetector(3, apply_detector_config)
@@ -538,9 +627,8 @@ class TestApplyDetector():
         # Available Channels:
 	    # ..EHE       100.0 Hz  1994-12-22 to 2002-08-29
 	    # ..EHN       100.0 Hz  1993-10-26 to 2002-08-29
-        # This will throw an error if it does not exit appropriately because these miniseed files don't exist
-        # TODO: I could do this test better
-        applier.apply_to_multiple_days("YJC", "EH?", 2002, 10, 1, 2, debug_N_examples=256)
+        with pytest.raises(ValueError):
+            applier.apply_to_multiple_days("YJC", "EH?", 2002, 10, 1, 2, debug_N_examples=256)
 
     def test_apply_to_multiple_days_1c_new_year(self):
             pass

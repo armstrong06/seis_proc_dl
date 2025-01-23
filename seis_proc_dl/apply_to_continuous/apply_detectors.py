@@ -164,6 +164,12 @@ class ApplyDetector():
             chan = chan[0:2] + "Z"
 
         stat_startdate, stat_enddate = self.get_station_dates(year, stat, chan)
+        date, n_days = self.validate_date_range(stat_startdate, 
+                                                stat_enddate,
+                                                date, 
+                                                n_days)
+        if (date is None) or (n_days == 0):
+            raise ValueError(f"Valid date range for station {stat}.{chan} is {stat_startdate} - {stat_enddate}. Exiting.")
 
         missing_dates = []
         file_error_dates = []
@@ -176,10 +182,12 @@ class ApplyDetector():
                 stat_startdate, stat_enddate = self.get_station_dates(year, stat, chan)
                 logger.info(f"Starting in new year ({year})")
 
+            # Should not need this anymore because of validate_date_range
             ### Make sure that the station is operational for this date
-            if not self.validate_run_date(date, stat_startdate, stat_enddate):
-                logger.warning(f"Valid date range for station {stat}.{chan} is {stat_startdate} - {stat_enddate}. Exiting.")
-                return
+            # if not self.validate_run_date(date, stat_startdate, stat_enddate):
+            #     # logger.warning(f"Valid date range for station {stat}.{chan} is {stat_startdate} - {stat_enddate}. Exiting.")
+            #     # return
+            #     continue
 
             ### The data files are organized Y/m/d, get the appropriate date/station files ###
             date_str = date.strftime("%Y/%m/%d")
@@ -373,6 +381,50 @@ class ApplyDetector():
             return True
         
         return False
+    
+    @staticmethod
+    def validate_date_range(stat_startdate, stat_enddate, run_startdate, n_days):
+        """Validates and corrects a date range given the station operation period. The date range is
+        invalid if no station start date is available or the date range is entirely outside of station operation. 
+        If valid, the start date and number of days for will be updated to agree with the station start and end 
+        dates, as needed.
+
+        Args:
+            stat_startdate (_type_): _description_
+            stat_enddate (_type_): _description_
+            run_startdate (_type_): _description_
+            n_days (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        run_enddate = run_startdate + n_days*datetime.timedelta(days=1)
+
+        # Date range of interest is entirely before the station being up or
+        # or no start date was found in the metadata 
+        if (stat_startdate is None) or (run_enddate < stat_startdate):
+            return None, 0
+        
+        # Date range of interest is entirely after the station being removed.
+        # It is okay for the station enddate to be none.
+        if (stat_enddate is not None) and (run_startdate > stat_enddate):
+            return None, 0
+        
+        # The date range of interest is partially before the station being up
+        if run_startdate < stat_startdate:
+            #run_startdate = stat_startdate
+            run_startdate = datetime.datetime(year=stat_startdate.year, 
+                                              month=stat_startdate.month, 
+                                              day=stat_startdate.day)
+
+        # The date range of interest is partially after the station being removed.
+        # It is okay for the station enddate to be none. 
+        if (stat_enddate is not None) and (run_enddate > stat_enddate):
+            run_enddate = stat_enddate
+
+        n_days = (run_enddate - run_startdate).days
+
+        return run_startdate, n_days
 
     def write_dates_to_file(self, basedir, error_type, stat, chan, dates):
         """Append the list of dates to a text file for that station/channel. Will make a DataIssues dir 
