@@ -898,8 +898,8 @@ class DataLoader():
                                               min_signal_percent=min_signal_percent,
                                               expected_file_duration_s=expected_file_duration_s)
 
-        assert np.isin(st_E[0].stats.channel, ["EHE", "EH1", "BHE", "BH1", "HHE"]), "E file is incorrect"
-        assert np.isin(st_N[0].stats.channel, ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
+        assert np.isin(st_E[0].stats.channel, ["EHE", "EH1", "BHE", "BH1", "HHE", "HH1"]), "E file is incorrect"
+        assert np.isin(st_N[0].stats.channel, ["EHN", "EH2", "BHN", "BH2", "HHN", "HH2"]), "N file is incorrect"
         assert np.isin(st_Z[0].stats.channel, ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
 
         # # When an entire day is removed, remove orientation from gap channel info
