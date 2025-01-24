@@ -202,17 +202,15 @@ class ApplyDetector():
                 missing_dates.append(date_str)
                 # Reset dataloader
                 self.dataloader.error_in_loading()
-                continue
             elif (self.ncomps == 1 and len(files) != 1) or (self.ncomps ==3 and len(files) != 3):
                 logger.warning(f"Incorrect number of files found for {date_str} {stat} {chan}")
                 file_error_dates.append(date_str)
                 # Reset dataloader
                 self.dataloader.error_in_loading()
-                continue 
-
-            applied_successfully = self.apply_to_one_file(files, date_outdir, debug_N_examples=debug_N_examples)
-            if not applied_successfully:
-                insufficient_data_dates.append(date_str)
+            else:
+                applied_successfully = self.apply_to_one_file(files, date_outdir, debug_N_examples=debug_N_examples)
+                if not applied_successfully:
+                    insufficient_data_dates.append(date_str)
 
             date += delta
 
