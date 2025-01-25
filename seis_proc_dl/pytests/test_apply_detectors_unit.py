@@ -224,7 +224,7 @@ class TestApplyDetector():
 
     def test_apply_to_multiple_days_missing(self):
         applier = apply_detectors.ApplyDetector(1, apply_detector_config)
-        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 3, 2, debug_N_examples=256)
+        applier.apply_to_multiple_days("YWB", "EHZ", 2002, 1, 3, 4, debug_N_examples=256)
 
         assert applier.dataloader.metadata is None
         assert applier.dataloader.continuous_data is None
@@ -245,10 +245,17 @@ class TestApplyDetector():
         expected_error_file = f"{apply_detectors_outdir}/DataIssues/missing/YWB.EHZ.txt"
         assert os.path.exists(expected_error_file)
 
+        cnt = 0
         with open(expected_error_file, "r") as f:
             for line in f:
-                assert line == "2002/01/04\n"
-
+                if cnt == 0:
+                    assert line == "2002/01/04\n"
+                elif cnt == 1:
+                    assert line == "2002/01/05\n"
+                elif cnt == 2:
+                    assert line == "2002/01/06\n"
+                
+                cnt += 1
         os.remove(expected_error_file)
         os.remove(expected_p_probs_file_day1)
         os.remove(expected_json_file_day1)
