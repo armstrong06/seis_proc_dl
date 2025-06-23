@@ -6,57 +6,168 @@ from seis_proc_db.database import Session
 
 
 def make_input_files():
-    p_repicker_method = "P-MSWAG-Armstrong2023"
-    s_repicker_method = "S-MSWAG-Armstrong2023"
-    p_calibration_method = "P-Kuleshov2018-Armstrong2023"
-    s_calibration_method = "S-Kuleshov2018-Armstrong2023"
+    repicker_name = "MSWAG-Armstrong2023"
+    cal_name = "Kuleshov2018-Armstrong2023"
+    p_repicker_method = f"P-{repicker_name}"
+    s_repicker_method = f"S-{repicker_name}"
+    p_calibration_method = f"P-{cal_name}"
+    s_calibration_method = f"S-{cal_name}"
+    assoc_method_name = "massociate"
+    assoc_method_desc = (
+        "Migration-based association of differential pick times by Ben Baker."
+    )
     start_date = "2023-01-01"
-    end_date = "2023-01-02"
+    end_date = "2024-01-07"
     p_max_width = 0.30
     s_max_width = 0.40
     p_min_width = 0.150
     s_min_width = 0.250
     ci_perc = 90
-    outdir = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/process_ys_data/assoc_loc_io/in"
+    base_outdir = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/process_ys_data/assoc_loc_io/"
 
+    print("Gathering data from the database...")
     with Session() as session:
-        p_pick_df = services.make_pick_catalog_df(
-            session,
-            "P",
-            p_repicker_method,
-            p_calibration_method,
-            ci_perc,
-            start=start_date,
-            end=end_date,
-            max_width=p_max_width,
-            min_width=p_min_width,
-        )
-        s_pick_df = services.make_pick_catalog_df(
-            session,
-            "S",
-            s_repicker_method,
-            s_calibration_method,
-            ci_perc,
-            start=start_date,
-            end=end_date,
-            max_width=s_max_width,
-            min_width=s_min_width,
-        )
+        with session.begin():
+            assoc_meth = services.get_assoc_method(session, assoc_method_name)
+            if assoc_meth is None:
+                assoc_meth = services.insert_assoc_method(
+                    session,
+                    assoc_method_name,
+                    assoc_method_desc,
+                    p_min_width=p_min_width,
+                    p_max_width=p_max_width,
+                    s_min_width=s_min_width,
+                    s_max_width=s_max_width,
+                    repicker_name=repicker_name,
+                    cal_name=cal_name,
+                    ci_perc=ci_perc,
+                )
+                session.flush()
+            elif (
+                assoc_meth.details != assoc_method_desc
+                or assoc_meth.p_min_ci_width != p_min_width
+                or assoc_meth.p_max_ci_width != p_max_width
+                or assoc_meth.s_min_ci_width != s_min_width
+                or assoc_meth.s_max_ci_width != s_max_width
+                or assoc_meth.ci_perc != ci_perc
+                or assoc_meth.repicker_name != repicker_name
+                or assoc_meth.cal_name != cal_name
+            ):
+                raise ValueError(
+                    "AssocMethod exists already exists but the row values have changed..."
+                )
 
-    pick_df = pd.concat([p_pick_df, s_pick_df]).sort_values("arrival_time").round({"uncertainty": 3})
+            assoc_meth_id = assoc_meth.id
+            p_pick_df = services.make_pick_catalog_df(
+                session,
+                "P",
+                p_repicker_method,
+                p_calibration_method,
+                ci_perc,
+                start=start_date,
+                end=end_date,
+                max_width=p_max_width,
+                min_width=p_min_width,
+            )
+            s_pick_df = services.make_pick_catalog_df(
+                session,
+                "S",
+                s_repicker_method,
+                s_calibration_method,
+                ci_perc,
+                start=start_date,
+                end=end_date,
+                max_width=s_max_width,
+                min_width=s_min_width,
+            )
+
+    pick_df = (
+        pd.concat([p_pick_df, s_pick_df])
+        .sort_values("arrival_time")
+        .round({"uncertainty": 3})
+    )
 
     dateformat = "%Y-%m-%d"
     curr_date = datetime.strptime(start_date, dateformat)
     last_date = datetime.strptime(end_date, dateformat)
-    delta = timedelta(days = 1)
+    delta = timedelta(days=1)
 
+    print("Saving daily csv files...")
+    slurm_array_list = []
     while curr_date < last_date:
+        print("Working on", curr_date.strftime(dateformat))
+        outdir = f"{curr_date.year}_assoc{assoc_meth_id:02d}"
+        pick_dir = os.path.join(base_outdir, outdir, "picks")
+        stat_dir = os.path.join(base_outdir, outdir, "stations")
+        assoc_dir = os.path.join(base_outdir, outdir, "assoc_out")
+        loc_dir = os.path.join(base_outdir, outdir, "loc_out")
+
+        if not os.path.exists(pick_dir):
+            os.makedirs(pick_dir)
+
+        if not os.path.exists(stat_dir):
+            os.makedirs(stat_dir)
+
+        if not os.path.exists(assoc_dir):
+            os.makedirs(assoc_dir)
+
+        if not os.path.exists(loc_dir):
+            os.makedirs(loc_dir)
+
         curr_day_epoch = curr_date.replace(tzinfo=timezone.utc).timestamp()
         next_day_epoch = (curr_date + delta).replace(tzinfo=timezone.utc).timestamp()
-        day_df = pick_df[(pick_df["arrival_time"] >= curr_day_epoch) & (pick_df["arrival_time"] < next_day_epoch)]
-        day_df.to_csv(os.path.join(outdir, f"{curr_date.strftime(dateformat)}.csv"), index=False)
+        day_df = pick_df[
+            (pick_df["arrival_time"] >= curr_day_epoch)
+            & (pick_df["arrival_time"] < next_day_epoch)
+        ]
+        day_pick_df = day_df[
+            [
+                "pick_identifier",
+                "network",
+                "station",
+                "channel",
+                "location_code",
+                "phase_hint",
+                "arrival_time",
+                "uncertainty",
+            ]
+        ]
+        day_station_df = day_df[
+            [
+                "network",
+                "station",
+                "latitude",
+                "longitude",
+                "elevation",
+            ]
+        ].drop_duplicates().sort_values(["network", "station"])
+
+        pick_file = os.path.join(
+            pick_dir, f"{curr_date.strftime(dateformat)}.picks.csv"
+        )
+        day_pick_df.to_csv(pick_file, index=False)
+        stat_file = os.path.join(
+            stat_dir, f"{curr_date.strftime(dateformat)}.stations.csv"
+        )
+        day_station_df.to_csv(stat_file, index=False)
+
+        assoc_file = os.path.join(
+            assoc_dir, f"{curr_date.strftime(dateformat)}.associatedEvents.csv"
+        )
+        loc_file = os.path.join(
+            loc_dir, f"{curr_date.strftime(dateformat)}.locatedEvents.csv"
+        )
+
+        slurm_array_list.append([pick_file, stat_file, assoc_file, loc_file])
 
         curr_date += delta
+
+    slurm_array_df = pd.DataFrame(slurm_array_list)
+    slurm_array_file = os.path.join(
+        base_outdir, outdir, f"slurm_array_input_{start_date}_{end_date}.txt"
+    )
+    slurm_array_df.to_csv(slurm_array_file, index=False, header=False, sep=" ")
+
 
 if __name__ == "__main__":
     make_input_files()
