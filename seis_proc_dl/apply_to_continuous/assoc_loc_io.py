@@ -17,7 +17,7 @@ def make_input_files():
         "Migration-based association of differential pick times by Ben Baker."
     )
     start_date = "2023-01-01"
-    end_date = "2024-01-07"
+    end_date = "2023-01-07"
     p_max_width = 0.30
     s_max_width = 0.40
     p_min_width = 0.150
@@ -25,7 +25,14 @@ def make_input_files():
     ci_perc = 90
     base_outdir = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/process_ys_data/assoc_loc_io/"
 
-    print("Gathering data from the database...")
+
+    dateformat = "%Y-%m-%d"
+    curr_date = datetime.strptime(start_date, dateformat)
+    last_date = datetime.strptime(end_date, dateformat)
+    print("Getting Picks for", curr_date, "to", last_date)
+    delta = timedelta(days=1)
+    slurm_array_list = []
+
     with Session() as session:
         with session.begin():
             assoc_meth = services.get_assoc_method(session, assoc_method_name)
@@ -58,115 +65,111 @@ def make_input_files():
                 )
 
             assoc_meth_id = assoc_meth.id
-            p_pick_df = services.make_pick_catalog_df(
-                session,
-                "P",
-                p_repicker_method,
-                p_calibration_method,
-                ci_perc,
-                start=start_date,
-                end=end_date,
-                max_width=p_max_width,
-                min_width=p_min_width,
-            )
-            s_pick_df = services.make_pick_catalog_df(
-                session,
-                "S",
-                s_repicker_method,
-                s_calibration_method,
-                ci_perc,
-                start=start_date,
-                end=end_date,
-                max_width=s_max_width,
-                min_width=s_min_width,
-            )
 
-    pick_df = (
-        pd.concat([p_pick_df, s_pick_df])
-        .sort_values("arrival_time")
-        .round({"uncertainty": 3})
-    )
+            while curr_date < last_date:
+                curr_date_str = curr_date.strftime(dateformat)
+                next_date_str = (curr_date + delta).strftime(dateformat)
+                print("Working on", curr_date.strftime(dateformat))
 
-    dateformat = "%Y-%m-%d"
-    curr_date = datetime.strptime(start_date, dateformat)
-    last_date = datetime.strptime(end_date, dateformat)
-    delta = timedelta(days=1)
+                print("Gathering data from the database...")
+                p_pick_df = services.make_pick_catalog_df(
+                    session,
+                    "P",
+                    p_repicker_method,
+                    p_calibration_method,
+                    ci_perc,
+                    start=curr_date_str,
+                    end=next_date_str,
+                    max_width=p_max_width,
+                    min_width=p_min_width,
+                )
+                s_pick_df = services.make_pick_catalog_df(
+                    session,
+                    "S",
+                    s_repicker_method,
+                    s_calibration_method,
+                    ci_perc,
+                    start=curr_date_str,
+                    end=next_date_str,
+                    max_width=s_max_width,
+                    min_width=s_min_width,
+                )
 
-    print("Saving daily csv files...")
-    slurm_array_list = []
-    while curr_date < last_date:
-        print("Working on", curr_date.strftime(dateformat))
-        outdir = f"{curr_date.year}_assoc{assoc_meth_id:02d}"
-        pick_dir = os.path.join(base_outdir, outdir, "picks")
-        stat_dir = os.path.join(base_outdir, outdir, "stations")
-        assoc_dir = os.path.join(base_outdir, outdir, "assoc_out")
-        loc_dir = os.path.join(base_outdir, outdir, "loc_out")
+                all_pick_df = (
+                    pd.concat([p_pick_df, s_pick_df])
+                    .sort_values("arrival_time")
+                    .round({"uncertainty": 3})
+                )
 
-        if not os.path.exists(pick_dir):
-            os.makedirs(pick_dir)
+                print("Saving dfs...")
+                outdir = f"{curr_date.year}_assoc{assoc_meth_id:02d}"
+                pick_dir = os.path.join(base_outdir, outdir, "picks")
+                stat_dir = os.path.join(base_outdir, outdir, "stations")
+                assoc_dir = os.path.join(base_outdir, outdir, "assoc_out")
+                loc_dir = os.path.join(base_outdir, outdir, "loc_out")
 
-        if not os.path.exists(stat_dir):
-            os.makedirs(stat_dir)
+                if not os.path.exists(pick_dir):
+                    os.makedirs(pick_dir)
 
-        if not os.path.exists(assoc_dir):
-            os.makedirs(assoc_dir)
+                if not os.path.exists(stat_dir):
+                    os.makedirs(stat_dir)
 
-        if not os.path.exists(loc_dir):
-            os.makedirs(loc_dir)
+                if not os.path.exists(assoc_dir):
+                    os.makedirs(assoc_dir)
 
-        curr_day_epoch = curr_date.replace(tzinfo=timezone.utc).timestamp()
-        next_day_epoch = (curr_date + delta).replace(tzinfo=timezone.utc).timestamp()
-        day_df = pick_df[
-            (pick_df["arrival_time"] >= curr_day_epoch)
-            & (pick_df["arrival_time"] < next_day_epoch)
-        ]
-        day_pick_df = day_df[
-            [
-                "pick_identifier",
-                "network",
-                "station",
-                "channel",
-                "location_code",
-                "phase_hint",
-                "arrival_time",
-                "uncertainty",
-            ]
-        ]
-        day_station_df = day_df[
-            [
-                "network",
-                "station",
-                "latitude",
-                "longitude",
-                "elevation",
-            ]
-        ].drop_duplicates().sort_values(["network", "station"])
+                if not os.path.exists(loc_dir):
+                    os.makedirs(loc_dir)
 
-        pick_file = os.path.join(
-            pick_dir, f"{curr_date.strftime(dateformat)}.picks.csv"
-        )
-        day_pick_df.to_csv(pick_file, index=False)
-        stat_file = os.path.join(
-            stat_dir, f"{curr_date.strftime(dateformat)}.stations.csv"
-        )
-        day_station_df.to_csv(stat_file, index=False)
+                day_pick_df = all_pick_df[
+                    [
+                        "pick_identifier",
+                        "network",
+                        "station",
+                        "channel",
+                        "location_code",
+                        "phase_hint",
+                        "arrival_time",
+                        "uncertainty",
+                    ]
+                ]
+                day_station_df = all_pick_df[
+                    [
+                        "network",
+                        "station",
+                        "latitude",
+                        "longitude",
+                        "elevation",
+                    ]
+                ].drop_duplicates().sort_values(["network", "station"])
 
-        assoc_file = os.path.join(
-            assoc_dir, f"{curr_date.strftime(dateformat)}.associatedEvents.csv"
-        )
-        loc_file = os.path.join(
-            loc_dir, f"{curr_date.strftime(dateformat)}.locatedEvents.csv"
-        )
+                pick_file = os.path.join(
+                    pick_dir, f"{curr_date.strftime(dateformat)}.picks.csv"
+                )
+                day_pick_df.to_csv(pick_file, index=False)
+                stat_file = os.path.join(
+                    stat_dir, f"{curr_date.strftime(dateformat)}.stations.csv"
+                )
+                day_station_df.to_csv(stat_file, index=False)
 
-        slurm_array_list.append([pick_file, stat_file, assoc_file, loc_file])
+                assoc_file = os.path.join(
+                    assoc_dir, f"{curr_date.strftime(dateformat)}.associatedEvents.csv"
+                )
+                loc_file = os.path.join(
+                    loc_dir, f"{curr_date.strftime(dateformat)}.locatedEvents.csv"
+                )
 
-        curr_date += delta
+                slurm_array_list.append([pick_file, stat_file, assoc_file, loc_file])
+
+                curr_date += delta
 
     slurm_array_df = pd.DataFrame(slurm_array_list)
     slurm_array_file = os.path.join(
         base_outdir, outdir, f"slurm_array_input_{start_date}_{end_date}.txt"
     )
-    slurm_array_df.to_csv(slurm_array_file, index=False, header=False, sep=" ")
+    with open(slurm_array_file, 'w') as f:
+        f.write(str(len(slurm_array_list)) + "\n")
+
+    slurm_array_df.to_csv(slurm_array_file, mode="a", index=False, header=False, sep=" ")
 
 
 if __name__ == "__main__":
