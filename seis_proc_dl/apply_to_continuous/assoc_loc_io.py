@@ -1,8 +1,143 @@
 import pandas as pd
 import os
 from datetime import datetime, timedelta, timezone
-from seis_proc_db import services
+from seis_proc_db import services, tables
 from seis_proc_db.database import Session
+
+
+def insert_assoc_loc_db():
+    assoc_method_name = "massociate"
+    loc_method_name = "uLocator"
+    loc_method_desc = "Real-time event locator by Ben Baker"
+    indir = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/process_ys_data/assoc_loc_io/2023_assoc06"
+    start_date = "2023-02-01"
+    end_date = "2024-01-01"
+
+    dateformat = "%Y-%m-%d"
+    curr_date = datetime.strptime(start_date, dateformat)
+    last_date = datetime.strptime(end_date, dateformat)
+    delta = timedelta(days=1)
+    auth = "SPDL"
+
+    with Session() as session:
+        with session.begin():
+            assoc_meth = services.get_assoc_method(session, assoc_method_name)
+            assoc_method_id = assoc_meth.id
+            loc_method = services.get_loc_method(session, loc_method_name)
+            if loc_method is None:
+                loc_method = services.insert_loc_method(
+                    session, loc_method_name, loc_method_desc
+                )
+                session.flush()
+            loc_method_id = loc_method.id
+
+    events_to_insert = []
+    while curr_date < last_date:
+        print("Reading data for", curr_date)
+        assoc_file = os.path.join(
+            indir,
+            "assoc_out",
+            f"{curr_date.strftime(dateformat)}.associatedEvents.csv",
+        )
+        loc_file = os.path.join(
+            indir,
+            "loc_out",
+            f"{curr_date.strftime(dateformat)}.locatedEvents.csv",
+        )
+
+        assoc_df = None
+        if os.path.isfile(assoc_file):
+            assoc_df = pd.read_csv(assoc_file)
+        else:
+            print("No assoc file found, skipping day...")
+            curr_date += delta
+            continue
+
+        loc_df = None
+        if os.path.isfile(loc_file):
+            loc_df = pd.read_csv(loc_file)
+
+        assoc_ev_df = assoc_df[
+            [
+                "event_identifier",
+                "event_type",
+                "origin_time",
+                "event_latitude",
+                "event_longitude",
+                "event_depth",
+                "event_type.1",
+            ]
+        ].drop_duplicates()
+
+        for _, asor_row in assoc_ev_df.iterrows():
+            is_trigger = False
+            if asor_row["event_type.1"] == "trigger":
+                is_trigger = True
+            event = tables.Event(auth=auth, is_trigger=is_trigger)
+            assoc_arr_df = assoc_df[
+                assoc_df["event_identifier"] == asor_row["event_identifier"]
+            ]
+            asor = tables.AssocOrigin(
+                assocm_id=assoc_method_id,
+                lat=asor_row["event_latitude"],
+                lon=asor_row["event_longitude"],
+                depth=asor_row["event_depth"],
+                ot=datetime.fromtimestamp(asor_row["origin_time"], tz=timezone.utc),
+                narrs=len(assoc_arr_df),
+            )
+            for _, asarr_row in assoc_arr_df.iterrows():
+                asarr = tables.AssocArrival(
+                    pick_id=asarr_row["arrival_identifier"],
+                    arrtime=datetime.fromtimestamp(
+                        asarr_row["arrival_time"], tz=timezone.utc
+                    ),
+                    std_err=asarr_row["standard_error"],
+                    aphase=asarr_row["phase"],
+                    residual=asarr_row["residual"],
+                    travel_time=asarr_row["travel_time"],
+                )
+                asor.assoc_arrs.append(asarr)
+
+            locarr_df = None
+            if loc_df is not None:
+                locarr_df = loc_df[
+                    loc_df["event_identifier"] == asor_row["event_identifier"]
+                ]
+            if locarr_df is not None and len(locarr_df) > 0:
+                locor_row = locarr_df.iloc[0]
+                locor = tables.Origin(
+                    locm_id=loc_method_id,
+                    lat=locor_row["latitude"],
+                    lon=locor_row["longitude"],
+                    depth=locor_row["depth"],
+                    ot=locor_row["origin_time"],
+                    weighted_rmse=locor_row["weightedRMSE"],
+                    narrs=len(locarr_df),
+                    min_dist=locarr_df["source_receiver_distance"].min(),
+                )
+                for _, locarr_row in locarr_df.iterrows():
+                    locarr = tables.Arrival(
+                        pick_id=locarr_row["arrival_identifier"],
+                        arrtime=locarr_row["arrival_time"],
+                        aphase=locarr_row["phase"],
+                        std_err=locarr_row["standard_error"],
+                        residual=locarr_row["residual"],
+                        sr_dist=locarr_row["source_receiver_distance"],
+                    )
+                    locor.loc_arrs.append(locarr)
+
+                locor.assoc_origin = asor
+                event.origins.append(locor)
+
+            event.assoc_origins.append(asor)
+            events_to_insert.append(event)
+
+        curr_date += delta
+
+    print("Writing to db...")
+    with Session() as session:
+        with session.begin():
+            session.add_all(events_to_insert)
 
 
 def make_input_files():
@@ -16,15 +151,14 @@ def make_input_files():
     assoc_method_desc = (
         "Migration-based association of differential pick times by Ben Baker."
     )
-    start_date = "2023-01-01"
-    end_date = "2023-01-07"
+    start_date = "2023-02-01"
+    end_date = "2024-01-01"
     p_max_width = 0.30
     s_max_width = 0.40
     p_min_width = 0.150
     s_min_width = 0.250
     ci_perc = 90
     base_outdir = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/process_ys_data/assoc_loc_io/"
-
 
     dateformat = "%Y-%m-%d"
     curr_date = datetime.strptime(start_date, dateformat)
@@ -132,15 +266,19 @@ def make_input_files():
                         "uncertainty",
                     ]
                 ]
-                day_station_df = all_pick_df[
-                    [
-                        "network",
-                        "station",
-                        "latitude",
-                        "longitude",
-                        "elevation",
+                day_station_df = (
+                    all_pick_df[
+                        [
+                            "network",
+                            "station",
+                            "latitude",
+                            "longitude",
+                            "elevation",
+                        ]
                     ]
-                ].drop_duplicates().sort_values(["network", "station"])
+                    .drop_duplicates()
+                    .sort_values(["network", "station"])
+                )
 
                 pick_file = os.path.join(
                     pick_dir, f"{curr_date.strftime(dateformat)}.picks.csv"
@@ -166,11 +304,14 @@ def make_input_files():
     slurm_array_file = os.path.join(
         base_outdir, outdir, f"slurm_array_input_{start_date}_{end_date}.txt"
     )
-    with open(slurm_array_file, 'w') as f:
+    with open(slurm_array_file, "w") as f:
         f.write(str(len(slurm_array_list)) + "\n")
 
-    slurm_array_df.to_csv(slurm_array_file, mode="a", index=False, header=False, sep=" ")
+    slurm_array_df.to_csv(
+        slurm_array_file, mode="a", index=False, header=False, sep=" "
+    )
 
 
 if __name__ == "__main__":
-    make_input_files()
+    # make_input_files()
+    insert_assoc_loc_db()
