@@ -15,6 +15,7 @@ import openvino as ov
 import openvino.properties.hint as hints
 import openvino.properties as props
 import time
+import pandas as pd
 
 
 sys.path.append(
@@ -412,6 +413,11 @@ class ApplyDetector:
                     f"Time to store contdatainfo, gaps, and post_probs: {time.time() - start_data:0.2f} s"
                 )
         
+        cdi_info_dict ={"gaps": formatted_gaps,
+                        "start_time": self.db_conn.daily_info.start_time,
+                        "samp_rate": self.db_conn.daily_info.samp_rate,
+                        "buffer": self.db_conn.DETECTION_GAP_BUFFER_SECONDS}
+
         p_dets = None
         if p_post_probs is not None:
             p_dets = self.get_detections_from_post_probs(
@@ -419,6 +425,7 @@ class ApplyDetector:
                 "P",
                 thresh=self.p_det_thresh,
                 db_ids=self.db_conn.get_dldet_fk_ids(),
+                cdi_info_dict=cdi_info_dict
             )
 
         s_dets = None
@@ -428,6 +435,7 @@ class ApplyDetector:
                 "S",
                 thresh=self.s_det_thresh,
                 db_ids=self.db_conn.get_dldet_fk_ids(is_p=False),
+                cdi_info_dict=cdi_info_dict
             )
 
         with self.db_conn.Session() as session:
@@ -763,7 +771,7 @@ class ApplyDetector:
 
     @staticmethod
     def get_detections_from_post_probs(
-        Y, phase, window_size=100, thresh=0.1, end_thresh_diff=0.05, db_ids=None
+        Y, phase, window_size=100, thresh=0.1, end_thresh_diff=0.05, db_ids=None, cdi_info_dict=None
     ):
         """
         Find potential phase arrivals in the probability time-series output from the UNet given a minimum threshold value.
@@ -774,6 +782,11 @@ class ApplyDetector:
         :param min_boxcar_width: approx. minimum width of a boxcar detection allowed
         :return: list of the samples in Y with an expected phase arrival (given thresh)
         """
+        gaps_df = None
+        if cdi_info_dict["gaps"] is not None and len(cdi_info_dict["gaps"]) > 0:
+            gaps_df = pd.DataFrame(cdi_info_dict["gaps"])
+            buffer = datetime.timedelta(seconds=cdi_info_dict["buffer"])
+
         i1 = 0
         # picks = []
         # proba_values = []
@@ -814,7 +827,14 @@ class ApplyDetector:
                     d["method_id"] = db_ids["method"]
                     d["inference_id"] = db_ids["detout"]
 
-                detections.append(d)
+                    in_gap = False
+                    if gaps_df is not None:
+                        at = cdi_info_dict["start_time"] + datetime.timedelta(seconds=pick/cdi_info_dict["samp_rate"])
+                        in_gap = np.any((at >= gaps_df["start"] - buffer) & (at <= gaps_df["end"] + buffer))
+                    
+                    if not in_gap:
+                        detections.append(d)
+
                 # widths.append(end_win - start_win)
                 # picks.append(pick)
                 # proba_values.append(proba)
@@ -824,6 +844,7 @@ class ApplyDetector:
 
         logger.info(f"{len(detections)} potential detections for {phase}.")
 
+        print(detections)
         return detections
 
 

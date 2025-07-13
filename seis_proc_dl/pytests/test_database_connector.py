@@ -2100,6 +2100,10 @@ class TestApplyDetectorDB:
         p_post_probs[40000] = 80
         p_post_probs[56000] = 56
         p_post_probs[75000] = 45
+        # These should all be ignored because in a gap
+        p_post_probs[359_975] = 99
+        p_post_probs[365_000] = 99
+        p_post_probs[720_025] = 99
 
         with applier.db_conn.Session() as session:
             with session.begin():
@@ -2181,6 +2185,10 @@ class TestApplyDetectorDB:
         p_post_probs[40000] = 75
         p_post_probs[56000] = 50
         p_post_probs[75000] = 45
+        # These should all be ignored because in a gap
+        p_post_probs[359_975] = 99
+        p_post_probs[365_000] = 99
+        p_post_probs[720_025] = 99
 
         s_post_probs = np.zeros(metadata["npts"])
         s_post_probs[10005] = 95
@@ -2188,6 +2196,10 @@ class TestApplyDetectorDB:
         s_post_probs[40005] = 80
         s_post_probs[56005] = 55
         s_post_probs[75005] = 75
+        # These should all be ignored because in a gap
+        s_post_probs[359_975] = 99
+        s_post_probs[365_000] = 99
+        s_post_probs[720_025] = 99
 
         with applier.db_conn.Session() as session:
             applier.db_conn.get_channel_dates(session, date, "JK", "TST", "", "HHZ")
@@ -2419,6 +2431,10 @@ class TestApplyDetectorDB:
         p_post_probs[40000] = 75
         p_post_probs[56000] = 50
         p_post_probs[75000] = 45
+        # These should be included because no gaps
+        p_post_probs[359_975] = 99
+        p_post_probs[365_000] = 99
+        p_post_probs[720_025] = 99
 
         with applier.db_conn.Session() as session:
             applier.db_conn.get_channel_dates(session, date, "JK", "TST", "", "HHZ")
@@ -2426,7 +2442,7 @@ class TestApplyDetectorDB:
         applier.save_daily_results_in_db(
             date, continuous_data, metadata, gaps, error, p_post_probs
         )
-
+        print(applier.p_det_thresh)
         with applier.db_conn.Session() as session:
             # check the gaps
             gaps_Z = services.get_gaps(
@@ -2435,7 +2451,14 @@ class TestApplyDetectorDB:
                 applier.db_conn.daily_info.contdatainfo_id,
             )
             assert len(gaps_Z) == 0, "Incorrect number of gaps on HHZ channel"
-
+            det_fk_ids = applier.db_conn.get_dldet_fk_ids(is_p=True)
+            inserted_dets_P = services.get_dldetections(
+                session, det_fk_ids["data"], det_fk_ids["method"], 0.0, phase="P"
+            )
+            # Thresh is 55
+            assert (
+                len(inserted_dets_P) == 6
+            ), "incorrect number of P detections inserted"
             assert (
                 applier.db_conn.daily_info.dldet_output_id_P is None
             ), "the detector output should not be set"
@@ -2546,6 +2569,10 @@ class TestApplyDetectorDBPytables:
         p_post_probs[40000] = 80
         p_post_probs[56000] = 56
         p_post_probs[75000] = 45
+        # These should all be ignored because in a gap
+        p_post_probs[359_975] = 99
+        p_post_probs[365_000] = 99
+        p_post_probs[720_025] = 99
 
         with applier.db_conn.Session() as session:
             applier.db_conn.get_channel_dates(session, date, "JK", "TST", "", "HHZ")
@@ -2655,6 +2682,10 @@ class TestApplyDetectorDBPytables:
         p_post_probs[40000] = 75
         p_post_probs[56000] = 50
         p_post_probs[75000] = 45
+        # These should all be ignored because in a gap
+        p_post_probs[359_975] = 99
+        p_post_probs[365_000] = 99
+        p_post_probs[720_025] = 99
 
         s_post_probs = np.zeros(metadata["npts"])
         s_post_probs[10000] = 95
@@ -2662,6 +2693,10 @@ class TestApplyDetectorDBPytables:
         s_post_probs[40000] = 80
         s_post_probs[56000] = 55
         s_post_probs[75000] = 75
+        # These should all be ignored because in a gap
+        s_post_probs[359_975] = 99
+        s_post_probs[365_000] = 99
+        s_post_probs[720_025] = 99
 
         with applier.db_conn.Session() as session:
             applier.db_conn.get_channel_dates(session, date, "JK", "TST", "", "HH")
@@ -2848,6 +2883,10 @@ class TestApplyDetectorDBPytables:
         p_post_probs[40000] = 75
         p_post_probs[56000] = 50
         p_post_probs[75000] = 45
+        # These should be added because no gaps
+        p_post_probs[359_975] = 99
+        p_post_probs[365_000] = 99
+        p_post_probs[720_025] = 99
 
         with applier.db_conn.Session() as session:
             applier.db_conn.get_channel_dates(session, date, "JK", "TST", "", "HHZ")
@@ -2866,6 +2905,15 @@ class TestApplyDetectorDBPytables:
 
             assert len(gaps_Z) == 0, "Incorrect number of gaps on HHZ channel"
 
+            det_fk_ids = applier.db_conn.get_dldet_fk_ids(is_p=True)
+            inserted_dets_P = services.get_dldetections(
+                session, det_fk_ids["data"], det_fk_ids["method"], 0.0, phase="P"
+            )
+            # Thresh is 55
+            assert (
+                len(inserted_dets_P) == 6
+            ), "incorrect number of P detections inserted"
+      
             assert (
                 applier.db_conn.daily_info.dldet_output_id_P is not None
             ), "the detector output should be set"

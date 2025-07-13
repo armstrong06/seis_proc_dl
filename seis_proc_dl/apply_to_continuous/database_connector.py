@@ -8,6 +8,7 @@ from tables import open_file
 from seis_proc_db import database
 from seis_proc_db import services
 from seis_proc_db import pytables_backend
+from seis_proc_db.config import DETECTION_GAP_BUFFER_SECONDS
 from seis_proc_db.tables import Waveform, DailyContDataInfo, Channel, DLDetection
 from seis_proc_dl.utils.config_apply_detectors import Config
 
@@ -65,6 +66,8 @@ class DailyDetectionDBInfo:
         self.picks = None
         self.dldet_output_id_P = None
         self.dldet_output_id_S = None
+        self.start_time = None
+        self.samp_rate = None
 
 
 class ChannelInfo:
@@ -120,6 +123,8 @@ class DetectorDBConnection:
         # Only need one storage per phase for detection outputs
         self.detout_storage_P = None
         self.detout_storage_S = None
+        # Store gap buffer info
+        self.DETECTION_GAP_BUFFER_SECONDS = DETECTION_GAP_BUFFER_SECONDS
 
     def get_channel_dates(self, session, date, net, stat, loc, seed_code):
         """Returns the start and end times of the relevant channels for a station"""
@@ -353,6 +358,8 @@ class DetectorDBConnection:
                 )
 
         self.daily_info.contdatainfo_id = contdatainfo.id
+        self.daily_info.start_time = contdatainfo.proc_start
+        self.daily_info.samp_rate = contdatainfo.samp_rate
 
     def save_gaps(self, session, formatted_gaps):
         """Add gaps into the table. If many gaps in the same time period, combine them
@@ -425,12 +432,13 @@ class DetectorDBConnection:
 
     def save_detections(self, session, detections):
         """Add detections above a threshold into the database. Do not add detections if
-        they exist within a gap"""
+        they exist within a gap. The tresholding and gap checking is handled earlier."""
 
         if len(detections) == 0:
             return
 
-        services.bulk_insert_dldetections_with_gap_check(session, detections)
+        # services.bulk_insert_dldetections_with_gap_check(session, detections)
+        services.bulk_insert_dldetections(session, detections)
         session.flush()
 
     def get_dldet_fk_ids(self, is_p=True):
