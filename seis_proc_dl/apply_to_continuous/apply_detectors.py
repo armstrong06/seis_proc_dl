@@ -117,28 +117,16 @@ class ApplyDetector:
 
             with self.db_conn.Session() as session:
                 with session.begin():
-                    self.db_conn.add_waveform_source(
+                    self.db_conn.get_waveform_source(
                         session,
                         name="extract-dailyContData",
-                        desc=(
-                            "Waveform snippets are from the daily mseed file that has been loaded and "
-                            "processed using seis-proc-dl.apply_to_continuous.apply_detectors.DataLoader. "
-                            "Mseed files were resampled to 100 Hz beforehand. No additional processing is applied."
-                        ),
-                        filt_low=None,
-                        filt_high=None,
-                        detrend=None,
-                        normalize=None,
-                        common_samp_rate=100.0,
                     )
                     if ncomps == 1:
                         self.p_det_thresh = config.database.p_det_thresh_1c
                         self.p_pick_thresh = config.database.p_pick_thresh_1c
-                        self.db_conn.add_detection_method(
+                        self.db_conn.get_detection_method(
                             session,
-                            config.database.det_method_1c_P.name,
-                            desc=config.database.det_method_1c_P.desc,
-                            path=config.paths.one_comp_p_model,
+                            name=config.database.det_method_1c_P.name,
                             phase="P",
                         )
                     elif ncomps == 3:
@@ -146,18 +134,14 @@ class ApplyDetector:
                         self.p_pick_thresh = config.database.p_pick_thresh_3c
                         self.s_det_thresh = config.database.s_det_thresh
                         self.s_pick_thresh = config.database.s_pick_thresh
-                        self.db_conn.add_detection_method(
+                        self.db_conn.get_detection_method(
                             session,
-                            config.database.det_method_3c_P.name,
-                            desc=config.database.det_method_3c_P.desc,
-                            path=config.paths.three_comp_p_model,
+                            name=config.database.det_method_3c_P.name,
                             phase="P",
                         )
-                        self.db_conn.add_detection_method(
+                        self.db_conn.get_detection_method(
                             session,
-                            config.database.det_method_3c_S.name,
-                            desc=config.database.det_method_3c_S.desc,
-                            path=config.paths.three_comp_s_model,
+                            name=config.database.det_method_3c_S.name,
                             phase="S",
                         )
 

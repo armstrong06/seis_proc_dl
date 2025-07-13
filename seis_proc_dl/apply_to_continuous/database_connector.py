@@ -9,9 +9,52 @@ from seis_proc_db import database
 from seis_proc_db import services
 from seis_proc_db import pytables_backend
 from seis_proc_db.tables import Waveform, DailyContDataInfo, Channel, DLDetection
+from seis_proc_dl.utils.config_apply_detectors import Config
 
 # TODO: Think I need to not store ORM objects, use them in the same session only. Just store id's and get other info as needed.
 
+def store_source_method_info(ncomps, config):
+    config = Config.from_json(config)
+    with database.Session() as session:
+        with session.begin():
+            services.upsert_waveform_source(
+                session,
+                name="extract-dailyContData",
+                details=(
+                    "Waveform snippets are from the daily mseed file that has been loaded and "
+                    "processed using seis-proc-dl.apply_to_continuous.apply_detectors.DataLoader. "
+                    "Mseed files were resampled to 100 Hz beforehand. No additional processing is applied."
+                ),
+                path=None,
+                filt_low=None,
+                filt_high=None,
+                detrend=None,
+                normalize=None,
+                common_samp_rate=100.0,
+            )
+            if ncomps == 1:
+               services.upsert_detection_method(
+                    session,
+                    name=config.database.det_method_1c_P.name,
+                    details=config.database.det_method_1c_P.desc,
+                    path=config.paths.one_comp_p_model,
+                    phase="P",
+                )
+            elif ncomps == 3:
+                services.upsert_detection_method(
+                    session,
+                    name=config.database.det_method_3c_P.name,
+                    details=config.database.det_method_3c_P.desc,
+                    path=config.paths.three_comp_p_model,
+                    phase="P",
+                )
+                services.upsert_detection_method(
+                    session,
+                    name=config.database.det_method_3c_S.name,
+                    details=config.database.det_method_3c_S.desc,
+                    path=config.paths.three_comp_s_model,
+                    phase="S",
+                )
 
 class DailyDetectionDBInfo:
     def __init__(self, date):
@@ -121,6 +164,25 @@ class DetectorDBConnection:
 
         self.last_channel_date = end_date
         return start_date, end_date
+
+    def get_waveform_source(self, session, name):
+        wf_source = services.get_waveform_source(session, name)
+        if wf_source is None:
+            raise ValueError(f"No waveform source with name {name} found in the db")
+        
+        self.wf_source_id = wf_source.id
+
+    def get_detection_method(self, session, phase, name):
+        det_method = services.get_detection_method(session, name)
+        if det_method is None:
+            raise ValueError(f"No detection method with name {name} found in the db")
+        
+        if phase == "P":
+            self.p_detection_method_id = det_method.id
+        elif phase == "S":
+            self.s_detection_method_id = det_method.id
+        else:
+            raise ValueError("Invalid Phase for Detection Method")
 
     def add_waveform_source(
         self,

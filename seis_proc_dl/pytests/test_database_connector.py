@@ -11,7 +11,7 @@ import shutil
 from unittest import mock
 
 from obspy.core import UTCDateTime as UTC
-from seis_proc_dl.apply_to_continuous.database_connector import DetectorDBConnection
+from seis_proc_dl.apply_to_continuous.database_connector import DetectorDBConnection, store_source_method_info
 from seis_proc_dl.apply_to_continuous.apply_detectors import ApplyDetector
 from seis_proc_db.database import engine
 from seis_proc_db import services, tables, pytables_backend
@@ -2034,6 +2034,7 @@ def db_session_for_applier_with_3c_stat_loaded(db_session, stat_ex, channel_ex_3
 class TestApplyDetectorDB:
     def test_init_3c(self, db_session):
         session_factory, _ = db_session
+        store_source_method_info(3, apply_detector_config)
         applier = ApplyDetector(
             3, apply_detector_config, session_factory=session_factory
         )
@@ -2055,6 +2056,7 @@ class TestApplyDetectorDB:
 
     def test_init_1c(self, db_session):
         session_factory, _ = db_session
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config, session_factory=session_factory
         )
@@ -2082,6 +2084,7 @@ class TestApplyDetectorDB:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config, session_factory=session_factory
         )
@@ -2162,6 +2165,7 @@ class TestApplyDetectorDB:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(3, apply_detector_config)
         applier = ApplyDetector(
             3, apply_detector_config, session_factory=session_factory
         )
@@ -2272,6 +2276,7 @@ class TestApplyDetectorDB:
 
     def test_apply_to_multiple_days_dumb(self, db_session, mock_pytables_config):
         session_factory, _ = db_session
+        store_source_method_info(3, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config, session_factory=session_factory
         )
@@ -2285,6 +2290,7 @@ class TestApplyDetectorDB:
         """Case when the original start date/ndays must be altered given the channel operating days,
         but there is no data on the first day of operation."""
         session_factory, _ = db_session
+        store_source_method_info(3, apply_detector_config)
         applier = ApplyDetector(
             3, apply_detector_config, session_factory=session_factory
         )
@@ -2355,6 +2361,7 @@ class TestApplyDetectorDB:
     ):
         """Handle the case when there is a gap in the operating days of the channels"""
         session_factory = db_session_with_gap_in_channel_dates
+        store_source_method_info(3, apply_detector_config)
         applier = ApplyDetector(
             3, apply_detector_config, session_factory=session_factory
         )
@@ -2396,6 +2403,7 @@ class TestApplyDetectorDB:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config, session_factory=session_factory
         )
@@ -2439,6 +2447,7 @@ class TestApplyDetectorDB:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config, session_factory=session_factory
         )
@@ -2499,6 +2508,7 @@ apply_detector_config_pytables["database"]["use_pytables"] = True
 class TestApplyDetectorDBPytables:
     def test_init_3c(self, db_session):
         session_factory, _ = db_session
+        store_source_method_info(3, apply_detector_config)
         applier = ApplyDetector(
             3, apply_detector_config_pytables, session_factory=session_factory
         )
@@ -2506,6 +2516,7 @@ class TestApplyDetectorDBPytables:
 
     def test_init_1c(self, db_session):
         session_factory, _ = db_session
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config_pytables, session_factory=session_factory
         )
@@ -2519,6 +2530,7 @@ class TestApplyDetectorDBPytables:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config_pytables, session_factory=session_factory
         )
@@ -2627,6 +2639,7 @@ class TestApplyDetectorDBPytables:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(3, apply_detector_config)
         applier = ApplyDetector(
             3, apply_detector_config_pytables, session_factory=session_factory
         )
@@ -2785,6 +2798,7 @@ class TestApplyDetectorDBPytables:
 
     def test_apply_to_multiple_days_dumb(self, db_session, mock_pytables_config):
         session_factory, _ = db_session
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config_pytables, session_factory=session_factory
         )
@@ -2818,6 +2832,7 @@ class TestApplyDetectorDBPytables:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config_pytables, session_factory=session_factory
         )
@@ -2872,6 +2887,7 @@ class TestApplyDetectorDBPytables:
         mock_pytables_config,
     ):
         session_factory = db_session_for_applier_with_3c_stat_loaded
+        store_source_method_info(1, apply_detector_config)
         applier = ApplyDetector(
             1, apply_detector_config_pytables, session_factory=session_factory
         )
