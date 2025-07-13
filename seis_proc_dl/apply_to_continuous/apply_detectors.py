@@ -822,18 +822,18 @@ class ApplyDetector:
                     "height": proba,
                     "phase": phase,
                 }
+                in_gap = False
                 if db_ids is not None:
                     d["data_id"] = db_ids["data"]
                     d["method_id"] = db_ids["method"]
                     d["inference_id"] = db_ids["detout"]
 
-                    in_gap = False
                     if gaps_df is not None:
                         at = cdi_info_dict["start_time"] + datetime.timedelta(seconds=pick/cdi_info_dict["samp_rate"])
                         in_gap = np.any((at >= gaps_df["start"] - buffer) & (at <= gaps_df["end"] + buffer))
                     
-                    if not in_gap:
-                        detections.append(d)
+                if not in_gap:
+                    detections.append(d)
 
                 # widths.append(end_win - start_win)
                 # picks.append(pick)
