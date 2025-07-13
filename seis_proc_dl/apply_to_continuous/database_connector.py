@@ -775,6 +775,9 @@ class DetectorDBConnection:
             # Commit the pytables updates if everything went well in the database transaction
             for _, chan_storage in storage_dict.items():
                 chan_storage.commit()
+            if prev_storage_dict is not None:
+                for _, chan_storage in prev_storage_dict.items():
+                    chan_storage.commit()
 
     def _insert_new_waveforms(
         self, session, storage_dict, pick, pick_wf_details, common_wf_details
