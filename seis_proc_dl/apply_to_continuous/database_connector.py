@@ -98,6 +98,7 @@ class DetectorDBConnection:
     def __init__(self, ncomps, session_factory=None):
         self.Session = session_factory or database.Session
         self.ncomps = ncomps
+        self.initial_year = None
 
         self.station_name = None
         self.seed_code = None
@@ -135,6 +136,7 @@ class DetectorDBConnection:
         self.station_name = stat
         self.net = net
         self.loc = loc
+        self.initial_year = date.year
 
         # Get all channels for this station name and channel type
         all_channels = services.get_common_station_channels_by_name(
@@ -462,6 +464,7 @@ class DetectorDBConnection:
                 phase="P",
                 det_method_id=self.p_detection_method_id,
                 on_event=on_event,
+                year=self.initial_year
             )
 
         if len(data) < expected_array_length:
@@ -485,6 +488,7 @@ class DetectorDBConnection:
                 phase="S",
                 det_method_id=self.s_detection_method_id,
                 on_event=on_event,
+                year=self.initial_year
             )
 
         if len(data) < expected_array_length:
@@ -497,7 +501,7 @@ class DetectorDBConnection:
         self.daily_info.dldet_output_id_S = detout_id
 
     def _open_dldetection_output_storage(
-        self, expected_array_length, phase, det_method_id, on_event=None
+        self, expected_array_length, phase, det_method_id, year=None, on_event=None
     ):
         storage = pytables_backend.DLDetectorOutputStorage(
             expected_array_length=expected_array_length,
@@ -510,6 +514,7 @@ class DetectorDBConnection:
             det_method_id=det_method_id,
             on_event=on_event,
             expectedrows=self.channel_info.ndays,
+            year=year,
         )
         return storage
 
@@ -578,6 +583,7 @@ class DetectorDBConnection:
                     wf_source_id=self.wf_source_id,
                     on_event=common_wf_details["on_event"],
                     expectedrows=self.MAX_WAVEFORMS_PER_STORAGE,
+                    year=self.initial_year
                     # expectedrows=(
                     #     self.EXPECTED_DAILY_P_PICKS * self.channel_info.ndays
                     #     if is_p

@@ -1163,12 +1163,12 @@ class TestDetectorDBConnection:
         detmethod_id = db_conn.p_detection_method_id
         try:
             detout_storage = db_conn._open_dldetection_output_storage(
-                1000, "P", detmethod_id
+                1000, "P", detmethod_id, year=2011
             )
             file_name = detout_storage.file_name
             # Check that the filename is as would be expected
             assert (
-                file_name == f"JK.TST..HH.P.3C.detmethod{detmethod_id:02d}.h5"
+                file_name == f"JK.TST..HH.P.3C.2011.detmethod{detmethod_id:02d}.h5"
             ), "file name is not as expected"
             # Check that the file was created
             assert os.path.exists(detout_storage.file_path), "the file was not created"
@@ -1269,7 +1269,7 @@ class TestDetectorDBConnection:
             ), "data incorrect"
             assert (
                 db_conn.detout_storage_P.file_name
-                == f"JK.TST..HH.P.3C.detmethod{detout.method_id:02d}.h5"
+                == f"JK.TST..HH.P.3C.2011.detmethod{detout.method_id:02d}.h5"
             ), "file name is not as expected"
         finally:
             # Clean up
@@ -1307,7 +1307,7 @@ class TestDetectorDBConnection:
             ), "data incorrect"
             assert (
                 db_conn.detout_storage_S.file_name
-                == f"JK.TST..HH.S.3C.detmethod{detout.method_id:02d}.h5"
+                == f"JK.TST..HH.S.3C.2011.detmethod{detout.method_id:02d}.h5"
             ), "file name is not as expected"
         finally:
             # Clean up
