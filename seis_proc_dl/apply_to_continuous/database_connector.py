@@ -2,6 +2,8 @@ import sys
 import obspy
 import numpy as np
 import os
+import warnings
+import time
 from copy import deepcopy
 from datetime import timedelta
 from tables import open_file
@@ -94,6 +96,7 @@ class DetectorDBConnection:
     EXPECTED_DAILY_P_PICKS = 1000
     EXPECTED_DAILY_S_PICKS = 1000
     MAX_WAVEFORMS_PER_STORAGE = 150_000
+    EXPECTED_SAMP_RATE = 100.0
 
     def __init__(self, ncomps, session_factory=None, logger=None):
         self.Session = session_factory or database.Session
@@ -659,7 +662,8 @@ class DetectorDBConnection:
         cdi = session.get(DailyContDataInfo, data_id)
         cdi_date = cdi.date
         cdi_prev_appended = cdi.prev_appended
-        samples_around_pick = int(seconds_around_pick * cdi.samp_rate)
+        # cdi.samp_rate => this might not be exactly 100
+        samples_around_pick = int(seconds_around_pick * self.EXPECTED_SAMP_RATE)
         total_npts = len(continuous_data)
         total_expected_samples = samples_around_pick * 2 + 1
 
@@ -828,6 +832,17 @@ class DetectorDBConnection:
                 pytables_wf_data[
                     pick_wf_details["wf_start_ind"] : pick_wf_details["wf_end_ind"]
                 ] = wf_data
+
+                # if pytables_wf_data.shape[0] != common_wf_details["expected_array_length"]:
+                #     warning = (f"pytables_wf_data is not the expected shape! Skipping the waveform for pick {pick.id}. "
+                #                f"pytables_wf_data.shape = {pytables_wf_data.shape}, "
+                #                f"wf_data.shape = {wf_data.shape}, wf_start_ind={pick_wf_details['wf_start_ind']}, "
+                #                f"wf_end_ind={pick_wf_details['wf_end_ind']}, wf_start={pick_wf_details['wf_start']}"
+                #                f"wf_end={pick_wf_details['wf_end']}, expected_array_length={common_wf_details['expected_array_length']}")
+                #     #warnings.warn(warning, UserWarning)
+                #     raise Warning(warning)
+                #     break
+
                 _ = services.insert_waveform_pytable(
                     session,
                     chan_storage,
