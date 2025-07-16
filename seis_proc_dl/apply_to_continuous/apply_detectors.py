@@ -42,7 +42,9 @@ logger.setLevel(logging.DEBUG)
 
 
 class ApplyDetector:
-    def __init__(self, ncomps, config, session_factory=None) -> None:
+    def __init__(
+        self, ncomps, config, session_factory=None, max_samp_rate_diff=None
+    ) -> None:
         """Use DataLoader and PhaseDetector to load and apply detectors to day chunks of seismic data.
 
         Args:
@@ -68,7 +70,12 @@ class ApplyDetector:
         self.p_proc_func = None
         self.ncomps = ncomps
         config = Config.from_json(config)
-        self.dataloader = DataLoader(config.dataloader.store_N_seconds)
+        if max_samp_rate_diff is None:
+            self.dataloader = DataLoader(config.dataloader.store_N_seconds)
+        else:
+            self.dataloader = DataLoader(
+                config.dataloader.store_N_seconds, max_samp_rate_diff=max_samp_rate_diff
+            )
         self.data_dir = config.paths.data_dir
         self.outdir = config.paths.output_dir
         self.window_length = config.unet.window_length
@@ -414,11 +421,13 @@ class ApplyDetector:
                 logger.debug(
                     f"Time to store contdatainfo, gaps, and post_probs: {time.time() - start_data:0.2f} s"
                 )
-        
-        cdi_info_dict ={"gaps": formatted_gaps,
-                        "start_time": self.db_conn.daily_info.start_time,
-                        "samp_rate": self.db_conn.daily_info.samp_rate,
-                        "buffer": self.db_conn.DETECTION_GAP_BUFFER_SECONDS}
+
+        cdi_info_dict = {
+            "gaps": formatted_gaps,
+            "start_time": self.db_conn.daily_info.start_time,
+            "samp_rate": self.db_conn.daily_info.samp_rate,
+            "buffer": self.db_conn.DETECTION_GAP_BUFFER_SECONDS,
+        }
 
         p_dets = None
         if p_post_probs is not None:
@@ -427,7 +436,7 @@ class ApplyDetector:
                 "P",
                 thresh=self.p_det_thresh,
                 db_ids=self.db_conn.get_dldet_fk_ids(),
-                cdi_info_dict=cdi_info_dict
+                cdi_info_dict=cdi_info_dict,
             )
 
         s_dets = None
@@ -437,7 +446,7 @@ class ApplyDetector:
                 "S",
                 thresh=self.s_det_thresh,
                 db_ids=self.db_conn.get_dldet_fk_ids(is_p=False),
-                cdi_info_dict=cdi_info_dict
+                cdi_info_dict=cdi_info_dict,
             )
 
         with self.db_conn.Session() as session:
@@ -773,7 +782,13 @@ class ApplyDetector:
 
     @staticmethod
     def get_detections_from_post_probs(
-        Y, phase, window_size=100, thresh=0.1, end_thresh_diff=0.05, db_ids=None, cdi_info_dict=None
+        Y,
+        phase,
+        window_size=100,
+        thresh=0.1,
+        end_thresh_diff=0.05,
+        db_ids=None,
+        cdi_info_dict=None,
     ):
         """
         Find potential phase arrivals in the probability time-series output from the UNet given a minimum threshold value.
@@ -785,7 +800,11 @@ class ApplyDetector:
         :return: list of the samples in Y with an expected phase arrival (given thresh)
         """
         gaps_df = None
-        if cdi_info_dict["gaps"] is not None and len(cdi_info_dict["gaps"]) > 0:
+        if (
+            cdi_info_dict is not None
+            and cdi_info_dict["gaps"] is not None
+            and len(cdi_info_dict["gaps"]) > 0
+        ):
             gaps_df = pd.DataFrame(cdi_info_dict["gaps"])
             buffer = datetime.timedelta(seconds=cdi_info_dict["buffer"])
 
@@ -831,9 +850,14 @@ class ApplyDetector:
                     d["inference_id"] = db_ids["detout"]
 
                     if gaps_df is not None:
-                        at = cdi_info_dict["start_time"] + datetime.timedelta(seconds=pick/cdi_info_dict["samp_rate"])
-                        in_gap = np.any((at >= gaps_df["start"] - buffer) & (at <= gaps_df["end"] + buffer))
-                    
+                        at = cdi_info_dict["start_time"] + datetime.timedelta(
+                            seconds=pick / cdi_info_dict["samp_rate"]
+                        )
+                        in_gap = np.any(
+                            (at >= gaps_df["start"] - buffer)
+                            & (at <= gaps_df["end"] + buffer)
+                        )
+
                 if not in_gap:
                     detections.append(d)
 
@@ -1273,7 +1297,9 @@ class PhaseDetector:
 
 
 class DataLoader:
-    def __init__(self, store_N_seconds=0, min_gap_seconds=0.15) -> None:
+    def __init__(
+        self, store_N_seconds=0, min_gap_seconds=0.15, max_samp_rate_diff=1e-4
+    ) -> None:
         """Load day long miniseed files. Format and process for the PhaseDetector. Intended to be used for one
         station/channel over multiple days.
 
@@ -1290,6 +1316,7 @@ class DataLoader:
         self.previous_cont_data_gaps = None
         self.store_N_seconds = store_N_seconds
         self.min_gap_seconds = min_gap_seconds
+        self.max_samp_rate_diff = max_samp_rate_diff
 
     def error_in_loading(self, outfile=None):
         # Save outfile info (only works if the data was able to be loaded in)
@@ -1324,17 +1351,17 @@ class DataLoader:
         # assert np.isin(re.split( "[.|__]", os.path.basename(fileN))[3], ["EHN", "EH2", "BHN", "BH2", "HHN"]), "N file is incorrect"
         # assert np.isin(re.split( "[.|__]", os.path.basename(fileZ))[3], ["EHZ", "BHZ", "HHZ"]), "Z file is incorrect"
 
-        load_succeeded_E, st_E, gaps_E = self.load_channel_data(
+        load_succeeded_E, st_E, gaps_E, error_E = self.load_channel_data(
             fileE,
             min_signal_percent=min_signal_percent,
             expected_file_duration_s=expected_file_duration_s,
         )
-        load_succeeded_N, st_N, gaps_N = self.load_channel_data(
+        load_succeeded_N, st_N, gaps_N, error_N = self.load_channel_data(
             fileN,
             min_signal_percent=min_signal_percent,
             expected_file_duration_s=expected_file_duration_s,
         )
-        load_succeeded_Z, st_Z, gaps_Z = self.load_channel_data(
+        load_succeeded_Z, st_Z, gaps_Z, error_Z = self.load_channel_data(
             fileZ,
             min_signal_percent=min_signal_percent,
             expected_file_duration_s=expected_file_duration_s,
@@ -1377,8 +1404,12 @@ class DataLoader:
         self.gaps = gaps
         self.store_metadata(st_E[0].stats)
         # If any loads failed, exit
-        if (not load_succeeded_Z) or (not load_succeeded_E) or (not load_succeeded_N):
-            return False, "insufficient_data"
+        if not load_succeeded_Z:
+            return False, error_Z
+        elif not load_succeeded_N:
+            return False, error_N
+        elif not load_succeeded_E:
+            return False, error_E
 
         starttimes = [
             st_E[0].stats.starttime,
@@ -1390,11 +1421,15 @@ class DataLoader:
         dt = st_N[0].stats.delta
 
         # TODO: handle the failures in some way
-        assert abs(starttimes[0] - starttimes[1]) < dt
-        assert abs(starttimes[1] - starttimes[2]) < dt
-        assert abs(endtimes[0] - endtimes[1]) < dt
-        assert abs(endtimes[1] - endtimes[2]) < dt
-        assert len(np.unique(npts)) == 1
+        if (
+            abs(starttimes[0] - starttimes[1]) > dt
+            or abs(starttimes[1] - starttimes[2]) > dt
+        ):
+            return False, "inconsistent_trace_starts"
+        if abs(endtimes[0] - endtimes[1]) > dt or abs(endtimes[1] - endtimes[2]) > dt:
+            return False, "inconsistent_trace_ends"
+        if len(np.unique(npts)) != 1:
+            return False, "inconsistent_trace_npts"
 
         # assert (
         #     type(st_E[0].data[0]) == np.int32
@@ -1417,7 +1452,9 @@ class DataLoader:
 
         for st in [st_E, st_N, st_Z]:
             if not (np.max(abs(st[0].data)) < 2**24):
-                print(st[0].data.max(), st[0].data.min())
+                logger.debug(
+                    f"Extremley large values: {st[0].data.max()}, {st[0].data.min()}"
+                )
                 return False, "values_extremely_large"
 
         # Data from unprocessed mseed files is int32 but resampled mseed files are float64
@@ -1449,7 +1486,7 @@ class DataLoader:
 
         self.reset_loader()
 
-        load_succeeded, st, gaps = self.load_channel_data(
+        load_succeeded, st, gaps, error = self.load_channel_data(
             file,
             min_signal_percent=min_signal_percent,
             expected_file_duration_s=expected_file_duration_s,
@@ -1459,7 +1496,7 @@ class DataLoader:
         self.store_metadata(st[0].stats, three_channels=False)
 
         if not load_succeeded:
-            return False, "insufficient_data"
+            return False, error
 
         # assert (
         #     type(st[0].data[0]) == np.int32
@@ -1469,7 +1506,9 @@ class DataLoader:
         #     2**24
         # ), "data too large to be represented accuratley with float32"
         if not (np.max(abs(st[0].data)) < 2**24):
-            print("MAX, MIN", np.max(st[0].data), np.min(st[0].data))
+            logger.debug(
+                f"Extremley large values: MAX {np.max(st[0].data)}, MIN {np.min(st[0].data)}"
+            )
             return False, "values_extremely_large"
 
         # Data from unprocessed mseed files is int32 but resampled mseed files are float64
@@ -1698,9 +1737,14 @@ class DataLoader:
         self.metadata = meta_data
 
     def load_channel_data(
-        self, file, min_signal_percent=1, expected_file_duration_s=86400
+        self,
+        file,
+        min_signal_percent=1,
+        expected_file_duration_s=86400,
+        expected_sampling_rate=100,
     ):
         """Reads in a miniseed file and check for gaps. Gaps are interpolated, if there is sufficient data.
+        If there is an error besides insufficient_data, no gap information is returned.
 
         Args:
             file (str): Path to the miniseed file to read in.
@@ -1708,7 +1752,7 @@ class DataLoader:
             max_duration_s (int, optional): Expected duration of the miniseed file in seconds. Defaults to 86400.
 
         Returns:
-        tupple: (bool: Sufficient data or not, Obspy Stream, list of gaps)
+        tupple: (bool: Sufficient data or not, Obspy Stream, list of gaps, error)
         """
 
         logger.debug("loading %s", file)
@@ -1716,10 +1760,23 @@ class DataLoader:
         st = obspy.read(file)
 
         sampling_rate = round(st[0].stats.sampling_rate)
-
-        # Safer to just not allow other sampling rates for now
-        if abs(sampling_rate - 100) > 1e-3:
+        # Throw an error if there is a large difference in the sampling rate
+        if abs(sampling_rate - expected_sampling_rate) > 10:
             raise NotImplementedError("Only data sampled at 100 Hz has been tested")
+
+        # If it is close to the expected sampling rate, then the issue is likely clock drift or something
+        # Check all the traces in the stream in case of gaps?
+        for tr in st:
+            # 1E-4 should correspond to a difference of ~9 samples over the day
+            # Round to avoid some floating point errors
+            if (
+                round(abs(tr.stats.sampling_rate - expected_sampling_rate), 5)
+                > self.max_samp_rate_diff
+            ):
+                logger.warning(
+                    f"{os.path.basename(file)} has a sampling rate of {tr.stats.sampling_rate}, skipping."
+                )
+                return False, st, [], "sampling_rate_issue"
 
         # TODO: this only works for days, not hours - fine for me
         if expected_file_duration_s != 24 * 60 * 60:
@@ -1731,9 +1788,14 @@ class DataLoader:
         desired_start = UTC(starttime.year, starttime.month, starttime.day)
         desired_end = desired_start + expected_file_duration_s  # -0.01)
         # TODO: If the startime happens to be on the day before, it'll mess up the desired day
-        assert (
-            starttime >= desired_start
-        ), "The stream begins on the previous day of interest"
+        # assert (
+        #     starttime >= desired_start
+        # ), "The stream begins on the previous day of interest"
+        if starttime < desired_start:
+            logger.warning(
+                f"{os.path.basename(file)} begins on the previous day of interest, skipping."
+            )
+            return False, st, [], "starts_on_prev_day"
 
         # If there is not enough signal in this day, skip the day
         total_npts = np.sum([st[i].stats.npts for i in range(len(st))])
@@ -1762,7 +1824,7 @@ class DataLoader:
                 gaps.insert(0, start_gap)
             if (end_gap != None) and (end_gap[5] - end_gap[4] >= self.min_gap_seconds):
                 gaps += [end_gap]
-            return False, st, gaps
+            return False, st, gaps, "insufficient_data"
 
         # Still need to interpolate the gaps if they are less than min_gap
         if len(st.get_gaps()) > 0:
@@ -1816,11 +1878,16 @@ class DataLoader:
         # Obspy handles endtime update after reducing the data
         if st[0].stats.endtime >= desired_end:
             st[0].data = st[0].data[0 : int(expected_file_duration_s * sampling_rate)]
-        assert (
-            st[0].stats.endtime <= desired_end
-        ), "The end of the trace goes into the next day"
+        # assert (
+        #     st[0].stats.endtime <= desired_end
+        # ), "The end of the trace goes into the next day"
+        if st[0].stats.endtime > desired_end:
+            logger.warning(
+                f"{os.path.basename(file)} ends on the following day, skipping."
+            )
+            return False, st, [], "ends_on_next_day"
 
-        return True, st, gaps
+        return True, st, gaps, None
 
     @staticmethod
     def simplify_gaps(gaps):
