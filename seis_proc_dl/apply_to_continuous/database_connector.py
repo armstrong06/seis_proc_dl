@@ -95,7 +95,7 @@ class DetectorDBConnection:
     EXPECTED_DAILY_S_PICKS = 1000
     MAX_WAVEFORMS_PER_STORAGE = 150_000
 
-    def __init__(self, ncomps, session_factory=None):
+    def __init__(self, ncomps, session_factory=None, logger=None):
         self.Session = session_factory or database.Session
         self.ncomps = ncomps
         self.initial_year = None
@@ -126,6 +126,7 @@ class DetectorDBConnection:
         self.detout_storage_S = None
         # Store gap buffer info
         self.DETECTION_GAP_BUFFER_SECONDS = DETECTION_GAP_BUFFER_SECONDS
+        self.logger = logger
 
     def get_channel_dates(self, session, date, net, stat, loc, seed_code):
         """Returns the start and end times of the relevant channels for a station"""
