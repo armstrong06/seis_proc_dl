@@ -471,7 +471,7 @@ class DetectorDBConnection:
                 phase="P",
                 det_method_id=self.p_detection_method_id,
                 on_event=on_event,
-                year=self.initial_year
+                year=self.initial_year,
             )
 
         if len(data) < expected_array_length:
@@ -495,7 +495,7 @@ class DetectorDBConnection:
                 phase="S",
                 det_method_id=self.s_detection_method_id,
                 on_event=on_event,
-                year=self.initial_year
+                year=self.initial_year,
             )
 
         if len(data) < expected_array_length:
@@ -590,7 +590,7 @@ class DetectorDBConnection:
                     wf_source_id=self.wf_source_id,
                     on_event=common_wf_details["on_event"],
                     expectedrows=self.MAX_WAVEFORMS_PER_STORAGE,
-                    year=self.initial_year
+                    year=self.initial_year,
                     # expectedrows=(
                     #     self.EXPECTED_DAILY_P_PICKS * self.channel_info.ndays
                     #     if is_p
