@@ -26,7 +26,7 @@ argParser.add_argument(
 
 args = argParser.parse_args()
 
-assert args.year >= 2002 and args.year <= 2023, "Year is invalid"
+assert args.year >= 2002 and args.year <= 2025, "Year is invalid"
 assert args.month > 0 and args.month < 13, "Month is invalid"
 assert args.day > 0 and args.day <= 31, "Day is invalid"
 assert args.n > 0, "Number of days is invalid"
