@@ -1,5 +1,5 @@
 import argparse
-import importlib 
+import importlib
 import sys
 import time
 
@@ -15,6 +15,7 @@ argParser.add_argument(
 args = argParser.parse_args()
 assert args.ncomps in [1, 3], "Invalid number of components"
 
+
 def import_from_path(module_name, file_path):
     """
     From https://docs.python.org/3/library/importlib.html#importing-a-source-file-directly
@@ -26,9 +27,12 @@ def import_from_path(module_name, file_path):
     spec.loader.exec_module(module)
     return module
 
+
 # Import config from path (that way this script does not have to be next to the config file)
 CFG = import_from_path("detector_config", args.cfg).CFG
 
 t0 = time.time()
 store_source_method_info(args.ncomps, CFG)
-print(f"Total time to store waveform source and detection methods: {time.time() - t0}")
+print(
+    f"Total time to store waveform source and detection methods: {time.time() - t0:.2f} s"
+)
