@@ -846,7 +846,6 @@ class ApplyDetector:
 
         logger.info(f"{len(detections)} potential detections for {phase}.")
 
-        print(detections)
         return detections
 
 
