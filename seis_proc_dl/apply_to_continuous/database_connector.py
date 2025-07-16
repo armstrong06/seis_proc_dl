@@ -12,6 +12,7 @@ from seis_proc_db import services
 from seis_proc_db import pytables_backend
 from seis_proc_db.config import DETECTION_GAP_BUFFER_SECONDS
 from seis_proc_db.tables import Waveform, DailyContDataInfo, Channel, DLDetection
+from seis_proc_db.tables import PickCorrection, CredibleInterval
 from seis_proc_dl.utils.config_apply_detectors import Config
 
 # TODO: Think I need to not store ORM objects, use them in the same session only. Just store id's and get other info as needed.
@@ -1113,6 +1114,84 @@ class SwagPickerDBConnection:
             raise e
 
         storage.commit()
+
+    def save_corrections_updated(
+        self,
+        session,
+        all_ids,
+        ensemble_outputs,
+        summary_stats,
+        cal_results,
+        start_date,
+        end_date,
+        on_event=None,
+        bs=5000,
+    ):
+        n_wfs = ensemble_outputs.shape[0]
+        n_picks = ensemble_outputs.shape[1]
+        # Open the pytable to store the predictions
+        storage = self._open_picker_output_storage(
+            n_picks, n_wfs, start_date, end_date, on_event
+        )
+
+        # All corrs in an run will go to the same file
+        file = services.get_or_insert_corr_storage_file(session, storage.file_name)
+        session.flush()
+
+        # Iterate over the picks
+        pick_corrs_list = []
+        for i in np.arange(0, n_wfs):
+            i_ids = all_ids[i]
+            pick_corr = PickCorrection(
+                pid=i_ids["pick_id"],
+                method_id=self.repicker_method_id,
+                wf_source_id=i_ids["wf_source_id"],
+                median=summary_stats["median"][i],
+                mean=summary_stats["mean"][i],
+                std=summary_stats["std"][i],
+                if_low=summary_stats["if_low"][i],
+                if_high=summary_stats["if_high"][i],
+                trim_median=summary_stats["trim_median"][i],
+                trim_mean=summary_stats["trim_mean"][i],
+                trim_std=summary_stats["trim_std"][i],
+                preds_file_id=file.id,
+            )
+            for perc in cal_results.keys():
+                # Add the CI information
+                ci = CredibleInterval(
+                    method_id=self.calibration_method_id,
+                    percent=perc,
+                    lb=cal_results[perc]["arrivalTimeShiftLowerBound"][i],
+                    ub=cal_results[perc]["arrivalTimeShiftUpperBound"][i],
+                )
+                pick_corr.cis.append(ci)
+
+            pick_corrs_list.append(pick_corr)
+
+        try:
+            storage.start_transaction()
+            for i0 in range(0, n_wfs, bs):
+                i1 = min(i0 + bs, n_wfs)
+                batch_pcs = pick_corrs_list[i0:i1]
+                batch_preds = ensemble_outputs[i0:i1]
+                t0_pc = time.time()
+                session.add_all(batch_pcs)
+                session.flush()
+                t1_pc = time.time()
+                for pc, preds in zip(batch_pcs, batch_preds):
+                    storage.append(pc.id, preds)
+                t1_preds = time.time()
+                session.expunge_all()  # clears those objects from memory
+                if on_event is not None:
+                    on_event(
+                        f"Time to insert for {i0} to {i1}: DB-{t1_pc - t0_pc:.2f} s, Pytable-{t1_preds-t1_pc:.2f} s"
+                    )
+            session.commit()
+            storage.commit()
+        except Exception as e:
+            storage.rollback()
+            storage.close()
+            raise e
 
     def _open_picker_output_storage(
         self, n_total_picks, n_wfs, start, end, on_event=None
