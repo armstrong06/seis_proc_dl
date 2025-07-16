@@ -2054,7 +2054,7 @@ class DataLoader:
 
         dt = st[0].stats.delta
         start_gap = None
-        if start_delta > dt:
+        if start_delta >= dt:
             start_gap = [
                 st[0].stats.network,
                 st[0].stats.station,
@@ -2067,7 +2067,7 @@ class DataLoader:
             ]
 
         end_gap = None
-        if end_delta > dt:
+        if end_delta >= dt:
             end_gap = [
                 st[end_gap_st_ind].stats.network,
                 st[end_gap_st_ind].stats.station,
