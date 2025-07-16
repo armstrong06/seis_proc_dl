@@ -16,6 +16,7 @@ from seis_proc_dl.utils.config_apply_detectors import Config
 
 # TODO: Think I need to not store ORM objects, use them in the same session only. Just store id's and get other info as needed.
 
+
 def store_source_method_info(ncomps, config):
     config = Config.from_json(config)
     with database.Session() as session:
@@ -36,7 +37,7 @@ def store_source_method_info(ncomps, config):
                 common_samp_rate=100.0,
             )
             if ncomps == 1:
-               services.upsert_detection_method(
+                services.upsert_detection_method(
                     session,
                     name=config.database.det_method_1c_P.name,
                     details=config.database.det_method_1c_P.desc,
@@ -58,6 +59,7 @@ def store_source_method_info(ncomps, config):
                     path=config.paths.three_comp_s_model,
                     phase="S",
                 )
+
 
 class DailyDetectionDBInfo:
     def __init__(self, date):
@@ -180,14 +182,14 @@ class DetectorDBConnection:
         wf_source = services.get_waveform_source(session, name)
         if wf_source is None:
             raise ValueError(f"No waveform source with name {name} found in the db")
-        
+
         self.wf_source_id = wf_source.id
 
     def get_detection_method(self, session, phase, name):
         det_method = services.get_detection_method(session, name)
         if det_method is None:
             raise ValueError(f"No detection method with name {name} found in the db")
-        
+
         if phase == "P":
             self.p_detection_method_id = det_method.id
         elif phase == "S":
@@ -880,11 +882,16 @@ class DetectorDBConnection:
         # If there are no close picks, then insert_new_pick = True
         if len(close_picks) == 0:
             return new_pick_needed
+        # I don't want to deal with deciding which pick to modify at the moment.
+        # Just skip the new pick and keep the old ones.
         if len(close_picks) > 1:
-            self.close_open_pytables()
-            raise NotImplementedError(
-                "There are multiple close picks in the previous day's data..."
-            )
+            # self.close_open_pytables()
+            msg = f"There are {len(close_picks)} close picks in the previous day's data... Skipping pick with ptime {pick_waveform_details['det_time']!r}."
+            if self.logger is not None:
+                self.logger.warning(msg)
+            else:
+                warnings.warn(msg, UserWarning)
+            return False
 
         # If made it to this point, will update or keep an existing pick
         new_pick_needed = False
