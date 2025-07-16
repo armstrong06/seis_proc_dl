@@ -306,6 +306,7 @@ class DetectorDBConnection:
         db_dict = {
             "sta_id": self.station_id,
             "chan_pref": self.seed_code,
+            "chan_loc": self.loc,
             "ncomps": self.ncomps,
             "date": date,
             "error": error,
@@ -325,7 +326,12 @@ class DetectorDBConnection:
             }
 
         contdatainfo = services.get_contdatainfo(
-            session, self.station_id, self.seed_code, self.ncomps, date
+            session,
+            self.station_id,
+            self.seed_code,
+            self.ncomps,
+            date,
+            chan_loc=self.loc,
         )
 
         if contdatainfo is None:
@@ -748,6 +754,7 @@ class DetectorDBConnection:
                         session,
                         self.station_id,
                         self.seed_code,
+                        self.loc,
                         det_dict["det_phase"],
                         det_dict["det_time"],
                         auth,
@@ -849,6 +856,7 @@ class DetectorDBConnection:
             session,
             self.station_id,
             self.seed_code,
+            self.loc,
             common_waveform_details["phase"],
             min_time=pick_waveform_details["det_time"] - timedelta(seconds=0.1),
             max_time=pick_waveform_details["det_time"] + timedelta(seconds=0.1),
