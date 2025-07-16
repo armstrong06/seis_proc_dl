@@ -11,7 +11,10 @@ import shutil
 from unittest import mock
 
 from obspy.core import UTCDateTime as UTC
-from seis_proc_dl.apply_to_continuous.database_connector import DetectorDBConnection, store_source_method_info
+from seis_proc_dl.apply_to_continuous.database_connector import (
+    DetectorDBConnection,
+    store_source_method_info,
+)
 from seis_proc_dl.apply_to_continuous.apply_detectors import ApplyDetector
 from seis_proc_db.database import engine
 from seis_proc_db import services, tables, pytables_backend
@@ -2913,7 +2916,7 @@ class TestApplyDetectorDBPytables:
             assert (
                 len(inserted_dets_P) == 6
             ), "incorrect number of P detections inserted"
-      
+
             assert (
                 applier.db_conn.daily_info.dldet_output_id_P is not None
             ), "the detector output should be set"
@@ -3070,6 +3073,7 @@ class TestMultiSWAGPickerDB:
                 # Insert P Picks
                 p_dict = {
                     "chan_pref": "HH",
+                    "chan_loc": "01",
                     "phase": "P",
                     "ptime": datetime.strptime(
                         "2010-02-01T00:00:00.00", datetimeformat
@@ -3084,6 +3088,7 @@ class TestMultiSWAGPickerDB:
                 # Insert S Picks
                 s_dict = {
                     "chan_pref": "HH",
+                    "chan_loc": "01",
                     "phase": "S",
                     "ptime": datetime.strptime(
                         "2010-02-01T12:00:00.00", datetimeformat
