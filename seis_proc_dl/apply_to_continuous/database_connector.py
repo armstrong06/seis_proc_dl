@@ -566,6 +566,9 @@ class DetectorDBConnection:
             phase = "S"
 
         if curr_storage is None or (curr_count >= self.MAX_WAVEFORMS_PER_STORAGE):
+            self.logger.debug(
+                f"Updating waveform pytables. curr_storage is None = {curr_storage is None} & curr_count={curr_count}."
+            )
             if curr_storage is not None:
                 if prev_storage is not None:
                     for key, stor in prev_storage.items():
@@ -583,6 +586,10 @@ class DetectorDBConnection:
                     self.wf_source_id,
                     phase,
                     self.MAX_WAVEFORMS_PER_STORAGE,
+                    year=self.initial_year,
+                )
+                self.logger.debug(
+                    f"chan {chan_id} get_waveform_storage_number output = ({storage_number}, {hdf_file}, {count})"
                 )
                 new_storage[chan_id] = pytables_backend.WaveformStorage(
                     expected_array_length=common_wf_details["expected_array_length"],
