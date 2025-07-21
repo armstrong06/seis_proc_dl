@@ -437,6 +437,7 @@ class ApplyDetector:
                 thresh=self.p_det_thresh,
                 db_ids=self.db_conn.get_dldet_fk_ids(),
                 cdi_info_dict=cdi_info_dict,
+                end_thresh_diff=5
             )
 
         s_dets = None
@@ -447,6 +448,7 @@ class ApplyDetector:
                 thresh=self.s_det_thresh,
                 db_ids=self.db_conn.get_dldet_fk_ids(is_p=False),
                 cdi_info_dict=cdi_info_dict,
+                end_thresh_diff=5
             )
 
         with self.db_conn.Session() as session:
