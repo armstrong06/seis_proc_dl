@@ -9,15 +9,18 @@ def insert_assoc_loc_db():
     assoc_method_name = "massociate"
     loc_method_name = "uLocator"
     loc_method_desc = "Real-time event locator by Ben Baker"
-    indir = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/process_ys_data/assoc_loc_io/2023_assoc06"
-    start_date = "2023-02-01"
-    end_date = "2024-01-01"
+    basedir = "/uufs/chpc.utah.edu/common/home/koper-group3/alysha/process_ys_data/assoc_loc_io"
+    yeardir = "2024_assoc06"
+    start_date = "2024-01-01"
+    end_date = "2025-01-01"
 
     dateformat = "%Y-%m-%d"
     curr_date = datetime.strptime(start_date, dateformat)
     last_date = datetime.strptime(end_date, dateformat)
     delta = timedelta(days=1)
     auth = "SPDL"
+
+    indir = os.path.join(basedir, yeardir)
 
     with Session() as session:
         with session.begin():
@@ -151,8 +154,8 @@ def make_input_files():
     assoc_method_desc = (
         "Migration-based association of differential pick times by Ben Baker."
     )
-    start_date = "2023-02-01"
-    end_date = "2024-01-01"
+    start_date = "2024-01-01"
+    end_date = "2025-01-01"
     p_max_width = 0.30
     s_max_width = 0.40
     p_min_width = 0.150
